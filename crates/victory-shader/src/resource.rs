@@ -2392,8 +2392,6 @@ fn copy_source(inst: &Inst, k: usize) -> Option<Moved> {
     }
     let src = src.first()?;
     match (inst.name(), *src) {
-        // A 32-bit literal of a 64-bit integer move is zero-extended.
-        ("s_mov_b64", Operand::Literal(x)) => Some(Moved::Const(if k == 0 { x } else { 0 })),
         ("s_mov_b32" | "s_mov_b64", Operand::Scalar { code, .. }) if code != NULL => {
             inst.read(Reg::S(code + k as u8)).map(Moved::Value)
         }
