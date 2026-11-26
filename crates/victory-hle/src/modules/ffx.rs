@@ -84,6 +84,7 @@ extern "system" fn dispatch(context: *mut *mut c_void, desc: *const Header) -> u
                     output = ?d.output.resource,
                     output_size = ?(d.output.description[2], d.output.description[3]),
                     render = ?d.render,
+                    jitter = ?d.jitter,
                     upscale = ?d.upscale,
                     "upscale dispatch"
                 );
@@ -94,6 +95,7 @@ extern "system" fn dispatch(context: *mut *mut c_void, desc: *const Header) -> u
                 d.colour.resource,
                 d.output.resource,
                 d.render,
+                d.jitter,
             ) {
                 return 0;
             }

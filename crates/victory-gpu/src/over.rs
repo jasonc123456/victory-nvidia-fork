@@ -317,7 +317,7 @@ pub(crate) fn record(
 /// shortcut: no temporal accumulation, sharpening or use of the depth and
 /// motion inputs: an image, not the upscaler's quality.
 const STRETCH: &str = r#"
-cbuffer Sizes : register(b0) { float2 scale; float2 texel; };
+cbuffer Sizes : register(b0) { float2 scale; float2 texel; float2 jitter; };
 Texture2D<float4> source : register(t0);
 RWTexture2D<float4> target : register(u0);
 SamplerState bilinear : register(s0);
@@ -328,12 +328,14 @@ void stretch(uint3 id : SV_DispatchThreadID) {
     uint width, height;
     target.GetDimensions(width, height);
     if (id.x >= width || id.y >= height) return;
-    float2 at = (float2(id.xy) + 0.5) * texel * scale;
+    // The title moves its camera by a part of a pixel each frame (the jitter
+    // the console upscaler takes out): read where this texel was before it.
+    float2 at = (float2(id.xy) + 0.5) * texel * scale + jitter;
     // The rendered size can be the top left of a larger texture: stay half a
     // texel inside it, or the filter takes in what is beside it.
     uint sw, sh;
     source.GetDimensions(sw, sh);
-    at = min(at, scale - 0.5 / float2(sw, sh));
+    at = clamp(at, 0.5 / float2(sw, sh), scale - 0.5 / float2(sw, sh));
     target[id.xy] = source.SampleLevel(bilinear, at, 0);
 }
 "#;
@@ -371,7 +373,7 @@ fn make_stretch(device: &ID3D12Device) -> windows::core::Result<Stretch> {
             Constants: D3D12_ROOT_CONSTANTS {
                 ShaderRegister: 0,
                 RegisterSpace: 0,
-                Num32BitValues: 4,
+                Num32BitValues: 6,
             },
         },
         ShaderVisibility: D3D12_SHADER_VISIBILITY_ALL,
@@ -435,6 +437,7 @@ pub(crate) fn record_stretch(
     target: &ID3D12Resource,
     source: &ID3D12Resource,
     render: [u32; 2],
+    jitter: [f32; 2],
 ) -> bool {
     // SAFETY: live resources.
     let (to, from) = unsafe { (target.GetDesc(), source.GetDesc()) };
@@ -470,11 +473,17 @@ pub(crate) fn record_stretch(
         if render[0] == 0 { from.Width as u32 } else { render[0].min(from.Width as u32) },
         if render[1] == 0 { from.Height } else { render[1].min(from.Height) },
     ];
+    // The jitter is in rendered pixels; the shader reads in parts of the
+    // whole source. `VICTORY_UPSCALE_JITTER`: 1 (unset) as FidelityFX takes
+    // it, -1 the other way, 0 not taken out.
+    let way = jitter_way();
     let sizes = [
         rendered[0] as f32 / from.Width as f32,
         rendered[1] as f32 / from.Height as f32,
         1.0 / width as f32,
         1.0 / height as f32,
+        way * jitter[0] / from.Width as f32,
+        way * jitter[1] / from.Height as f32,
     ];
     let read = D3D12_SHADER_RESOURCE_VIEW_DESC {
         Format: typed(from.Format),
@@ -507,7 +516,7 @@ pub(crate) fn record_stretch(
         list.SetDescriptorHeaps(&[Some(p.views.clone())]);
         list.SetComputeRootSignature(&p.root);
         list.SetPipelineState(&p.pipeline);
-        list.SetComputeRoot32BitConstants(0, 4, sizes.as_ptr().cast(), 0);
+        list.SetComputeRoot32BitConstants(0, 6, sizes.as_ptr().cast(), 0);
         list.SetComputeRootDescriptorTable(1, gpu);
         list.Dispatch(width.div_ceil(8), height.div_ceil(8), 1);
     }
@@ -553,3 +562,18 @@ mod tests {
 
 #[cfg(test)]
 mod readback;
+
+/// Which way the stretch takes the title's jitter out
+/// (`VICTORY_UPSCALE_JITTER`: unset or 1, -1, or 0 for not at all).
+fn jitter_way() -> f32 {
+    static WAY: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *WAY.get_or_init(|| {
+        let way = std::env::var("VICTORY_UPSCALE_JITTER")
+            .ok()
+            .and_then(|v| v.trim().parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+            .unwrap_or(1.0);
+        tracing::info!(way, "the upscale stretch takes the title's jitter out (VICTORY_UPSCALE_JITTER)");
+        way
+    })
+}

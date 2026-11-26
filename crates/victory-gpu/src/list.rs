@@ -826,6 +826,7 @@ pub fn upscale_stretch(
     colour: *const std::ffi::c_void,
     output: *const std::ffi::c_void,
     render: [u32; 2],
+    jitter: [f32; 2],
 ) -> bool {
     let (this, colour, output): (This, This, This) = (this.cast(), colour.cast(), output.cast());
     if this.is_null() || colour.is_null() || output.is_null() || crate::host::host().is_none() {
@@ -835,10 +836,10 @@ pub fn upscale_stretch(
         return false;
     }
     if host_list(this).is_none() && thin::on() {
-        thin::upscale_later(this, colour, output, render);
+        thin::upscale_later(this, colour, output, render, jitter);
         return true;
     }
-    upscale_now(this, colour, output, render[0], render[1])
+    upscale_now(this, colour, output, render, jitter)
 }
 
 /// The stretch of [`upscale_stretch`], recorded on `this` now.
@@ -846,7 +847,7 @@ pub fn upscale_stretch(
 /// The real dispatch leaves its own state in the list, so the title sets
 /// its own again afterwards; ours is replayed all the same.
 #[cfg(windows)]
-pub(crate) fn upscale_now(this: This, colour: This, output: This, width: u32, height: u32) -> bool {
+pub(crate) fn upscale_now(this: This, colour: This, output: This, render: [u32; 2], jitter: [f32; 2]) -> bool {
     const SHADER_READ: u32 = 0x40;
     const UNORDERED: u32 = 0x8;
     let mut done = false;
@@ -860,7 +861,7 @@ pub(crate) fn upscale_now(this: This, colour: This, output: This, width: u32, he
         };
         ensure_state(list, colour, SHADER_READ);
         ensure_state(list, output, UNORDERED);
-        done = crate::over::record_stretch(&host.device, &list.list, to, from, [width, height]);
+        done = crate::over::record_stretch(&host.device, &list.list, to, from, render, jitter);
         if done {
             crate::texture::host_written(output);
         }

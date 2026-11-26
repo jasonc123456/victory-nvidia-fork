@@ -116,7 +116,7 @@ fn stretched(padded: bool) -> Option<[[u8; 20]; 3]> {
             transition(&scene, rtv, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
             transition(&ui, rtv, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
         ]);
-        assert!(record_stretch(&host.device, list, &target, &scene, [3, 2]));
+        assert!(record_stretch(&host.device, list, &target, &scene, [3, 2], [0.0, 0.0]));
         list.ResourceBarrier(&[transition(&target, uav, rtv)]);
         assert!(record(
             &host.device,
