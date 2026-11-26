@@ -8,6 +8,11 @@ speedups (`VICTORY_SYNC_IN_PLACE`, `VICTORY_SPANS_QUICK`, `VICTORY_METER_THREAD`
 `VICTORY_SHOW_NEW_LATER`, all on) and switches still off by default, to try through `MORE=`:
 `VICTORY_UP_QUEUE=1`, `VICTORY_JOIN_BARRIERS=1`, `VICTORY_LANE_CORE=1`, `VICTORY_PORT_CONSTANTS=1`.
 
+Upstream's later commits (avatarmanz 9c23e8d..9576c45, 73 commits) are **not** merged: on an
+RTX 5070 that tree ran at 2-3 fps where this one runs at 4.5-5 (same save, same place), and it
+drew a character without a face. That is so on upstream's own tree too, without this fork's
+changes, so it is not a merge fault. See *Tried on an RTX 5070* below.
+
 ## Changes on top of the 7900XTX fork
 
 - **NVIDIA shader fixes (32-lane waves)**, from fxceless's pull requests:
@@ -37,6 +42,10 @@ speedups (`VICTORY_SYNC_IN_PLACE`, `VICTORY_SPANS_QUICK`, `VICTORY_METER_THREAD`
   (`VICTORY_EARLY_TABLES`). NVIDIA allows only 1,000,000 views, which leaves 262,144 slots for
   per-draw tables. Holding them 64 submissions longer froze the picture: draws were dropped and
   the image grew brighter.
+- **Textures looked at again** (`VICTORY_RECHECK_EVERY=<frames>`, off by default): a texture the
+  layer had stopped watching after its first few looks is compared again every so many frames,
+  and sent up again when the title has changed it. Stale or half-new textures (blocky patches,
+  stripes) are caught about four times as often with `120`, at no frame time measured.
 - **More logging** for upscales and controller input.
 - **Launcher script** (`scripts/nvidia/start.ps1`): builds this checkout, sets the options, keeps
   each run's log and shows crash reports. **`Collect logs.cmd`** zips the logs for sharing.
@@ -120,14 +129,25 @@ On every start, the launcher checks:
 | Setting         | Suggested | What it does                                                       |
 |-----------------|-----------|--------------------------------------------------------------------|
 | `GAME`          | empty     | The title's main executable. Empty: picked once per PC             |
-| `RAYTRACING`    | 1         | Ray-traced light (lit shadows)                                     |
+| `RAYTRACING`    | 0 or 1    | Ray-traced light (lit shadows). 0 is 30-45% faster on a 12 GB card; rooms are darker |
 | `SEPARATE_PADS` | 1         | Each controller is its own device                                  |
 | `SAFE`          | 1         | Without the fork's newest CPU shortcuts. Steadier, and no welcome-screen stepping. Try 0 on a strong CPU |
 | `SERIES_X`      | 0         | Series X mode instead of Series S. Needs more video memory         |
 | `LOW_VRAM`      | auto      | Less video memory for textures and copies. auto: on for 8 GB cards or smaller |
 | `RELEASE`       | 0         | Release build instead of the diagnostics build                     |
 | `INPUT_TRACE`   | 0         | Log every controller reading                                       |
-| `MORE`          | empty     | Further settings, e.g. `VICTORY_TEXTURE_ROOM_PERCENT=85`           |
+| `MORE`          | see below | Further settings, space-separated                                  |
+
+Suggested `MORE` on an RTX 5070 12 GB (each measured, see *Results*):
+
+    set "MORE=VICTORY_UP_QUEUE=1 VICTORY_JOIN_BARRIERS=1 VICTORY_RECHECK_EVERY=120 VICTORY_TEXTURE_ROOM_PERCENT=95"
+
+- `VICTORY_UP_QUEUE=1 VICTORY_JOIN_BARRIERS=1`: about 7% faster together.
+- `VICTORY_RECHECK_EVERY=120`: textures the title changes late are caught (above).
+- `VICTORY_TEXTURE_ROOM_PERCENT=95`: textures may fill 95% of the card's budget instead of 90%.
+  On a 12 GB card, the passes that found no room for a texture fell from 19,341 to 181, and
+  objects that were drawn black got their textures, at the same frame rate. Lower values (or
+  `LOW_VRAM=1`, which sets 70) only make more textures wait.
 
 Flags typed after the file's name in a terminal are added to the ones set in the file:
 
@@ -166,10 +186,23 @@ show where a frame's time goes:
 | RTX 5070 12 GB, i7-14700K, 32 GB             | ray tracing, separate pads, safe, low VRAM auto (off) | Before upstream b0cfe2b: 4.5-5.7 fps in the world (dips to 2.2). 130-160 ms of each frame preparing on the processor side, 40-50 ms copying back; 11.2 of 12 GB video memory plus 8.1 GB shared, RAM at 96% |
 | RTX 5070 12 GB, i7-14700K, 32 GB             | same, with upstream b0cfe2b                     | About 7 fps on average in an early indoor area; visual faults remain |
 | RTX 5070 12 GB, i7-14700K, 32 GB             | same, at one spot of that area: without / with the shader fixes | Without: 6.3 fps, 102 ms preparing, 31 ms GPU, 3,237 draws. With: 6.0 fps, 87 ms preparing, 59 ms GPU, 4,581 draws, no pipeline refused, the structure builder on with all 53 pipelines. The same within run-to-run noise (6-7 fps either way); visual faults unchanged |
+| RTX 5070 12 GB, i7-14700K, 32 GB             | outside, one save and place (about 6,000-11,000 draws): ray tracing on / off | On: 4.5-5 fps, about 210 ms a frame. **Off: 5.5-7.4 fps, 144-158 ms** (about 10 fps indoors). With ray tracing off the card works only 3-47 ms a frame: the frame is the processor side's preparing (about 105 ms) and copying back (about 42 ms) |
+| RTX 5070 12 GB, i7-14700K, 32 GB             | ray tracing off, with `VICTORY_RECHECK_EVERY=120` and `VICTORY_TEXTURE_ROOM_PERCENT=95` | Same frame rate; stale textures caught about 4 times as often; textures left without room 181 times instead of 19,341, and black objects textured again |
 
 With the shader fixes, the first start after an update rebuilds every pipeline while it plays
 (hundreds at first, 1.5-4 fps for a minute or two); the second start loads them from the cache.
-Still to compare: `LOW_VRAM=1` against `auto` on a 12 GB card.
+`LOW_VRAM=1` on a 12 GB card was slower than `auto` (4.2 fps), as was `SAFE=0`.
+
+### Tried on an RTX 5070, and not kept
+
+Each in the same place as the results above, against this tree:
+
+| Tried | Result |
+|---|---|
+| Upstream to avatarmanz 9576c45, merged or on its own | 2-3 fps (340-580 ms a frame) against 4.5-5; a character drawn without a face; more speckle. The cause is not its 5 new ray-traced shadow programs or its two-plane compose (both switched in one run, no change) |
+| Renderer patch 1 `VICTORY_PORT_CONSTANTS=1` and patch 2 `VICTORY_PORT_DESCRIPTORS=1` (upstream 9997d25, 4cb90be) | Preparing halves, but the card reads the constants over PCIe: card time 88-163 ms with ray tracing, 105-233 ms without (from 3-47). Same fps with ray tracing, slower and a broken picture without (black sky, dark blotches). Patch 2 also misses 1,000-5,000 view records a run, which its fallback has to make |
+| The whole process on the P-cores only (i7-14700K) | No faster: preparing 3-5 ms shorter, but the title's own threads lose the E-cores |
+| Less texture room (`LOW_VRAM=1`, 70%) | Slower, and more textures wait |
 
 ### Shader pack on an RTX 5070 (32-lane waves)
 
@@ -198,9 +231,16 @@ made by the driver:
 
 ## Known faults
 
-- Green and red stripes, or a pixelated look, on some characters' arms.
+- Green and red stripes, or a pixelated look, on some characters' arms and clothes: textures the
+  title changes after the layer stopped looking. `VICTORY_RECHECK_EVERY=120` catches them sooner.
 - The welcome screen steps back and forth without `SAFE`.
-- Grainy speckle on hair and walls (ray-tracing noise), and bright stair-step blocks near windows.
+- Grainy speckle on hair, walls, floors and in the air, with ray tracing on or off (lighting
+  noise), and bright stair-step blocks near windows.
+- Some textures stay blank: the title makes a few hundred texture views at load before their
+  memory exists, and the layer gives those a null view (logged as `placed unordered texture view
+  not mirrored`; they are shader views, not writes). A minor fault: about 1,000-2,000 such views
+  in minutes of play.
+- Far-away trees can be drawn in a flat bright green.
 - Before the shader fixes, the driver refused compute pipelines with E_INVALIDARG (four in a run,
   29 over the whole pack), and each dropped its work. With them, every compute program gets a
   pipeline, and a run refuses none.

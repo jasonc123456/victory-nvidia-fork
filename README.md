@@ -10,8 +10,15 @@
 > card. A 12 GB card still spills about 8 GB into shared memory. Since 2026-11-26 the fork also
 > carries the NVIDIA shader fixes of fxceless's pull requests (32-lane waves): on an RTX 5070,
 > every compute program of the title now gets a pipeline (29 were refused before), at the same
-> 6-7 fps once the first start has rebuilt its pipelines. Everything below
-> this box is upstream's own description of the RX 7900 XTX fork.
+> 6-7 fps once the first start has rebuilt its pipelines.
+>
+> **Later on 2026-11-26:** with ray tracing off, an RTX 5070 runs 30-45% faster: 5.5-7.4 fps
+> outside (4.5-5 with it), about 10 indoors. The card then works only 3-47 ms a frame; the
+> processor side is the whole frame. `VICTORY_RECHECK_EVERY=120` (new here) and
+> `VICTORY_TEXTURE_ROOM_PERCENT=95` fix stale and missing textures at no measured cost.
+> Upstream's commits after 9c23e8d, its renderer patches and P-core pinning were tried and not
+> kept: all are measured in [NVIDIA.md](NVIDIA.md). Everything below this box is upstream's own
+> description of the RX 7900 XTX fork.
 
 A fork of [VIctory](https://github.com/Marvisak/VIctory), a compatibility layer
 that runs an Xbox Series title natively on Windows from files the user supplies.
