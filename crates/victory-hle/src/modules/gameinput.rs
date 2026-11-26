@@ -687,6 +687,19 @@ fn relative(
         .front()
         .is_none_or(|oldest| reference.sequence < oldest.sequence)
     {
+        // Debugging stuck input: a title that walks from a reading it kept
+        // gets nothing more once that reading has left the history.
+        static TOLD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        if TOLD.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 20 {
+            tracing::warn!(
+                device = index,
+                forward,
+                reference = reference.sequence,
+                oldest = history.front().map(|r| r.sequence),
+                newest = history.back().map(|r| r.sequence),
+                "a reading asked about from one that has left the history (REFERENCE_TOO_OLD)"
+            );
+        }
         return fail(out, REFERENCE_TOO_OLD);
     }
     let wanted = |r: &&Ref| r.kind() & kind != 0;
@@ -702,6 +715,15 @@ fn relative(
             .filter(|r| r.sequence < reference.sequence)
             .find(wanted)
     };
+    tracing::trace!(
+        kind = format_args!("{kind:#x}"),
+        device = index,
+        forward,
+        reference = reference.sequence,
+        found = found.map(|r| r.sequence),
+        newest = history.back().map(|r| r.sequence),
+        "relative reading"
+    );
     hand(out, found)
 }
 extern "system" fn next_reading(
