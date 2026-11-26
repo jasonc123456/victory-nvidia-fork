@@ -166,15 +166,41 @@ show where a frame's time goes:
 | RTX 5070 12 GB, i7-14700K, 32 GB             | ray tracing, separate pads, safe, low VRAM auto (off) | Before upstream b0cfe2b: 4.5-5.7 fps in the world (dips to 2.2). 130-160 ms of each frame preparing on the processor side, 40-50 ms copying back; 11.2 of 12 GB video memory plus 8.1 GB shared, RAM at 96% |
 | RTX 5070 12 GB, i7-14700K, 32 GB             | same, with upstream b0cfe2b                     | About 7 fps on average in an early indoor area; visual faults remain |
 
-The shader fixes above were ported after these runs and have not been measured yet. Still to
-compare: `LOW_VRAM=1` against `auto` on a 12 GB card.
+The shader fixes above were ported after these runs; their effect on frame rate and the picture
+has not been measured in a run yet. Still to compare: `LOW_VRAM=1` against `auto` on a 12 GB card.
+
+### Shader pack on an RTX 5070 (32-lane waves)
+
+`victory translate --validate --pipelines` over the title's shader pack and its ray-tracing
+structure builder, with `VICTORY_HOST_WAVE=32` and `VICTORY_VIEW_LIMIT=999999` as a run on this
+card reports them (without them the command translates for 64-lane waves, and NVIDIA's driver
+refuses those). 26,136 programs; translated, validated by the Windows SDK's `dxil.dll`, pipeline
+made by the driver:
+
+| Programs                  | Before the shader fixes (487d05a)      | With them                              |
+|---------------------------|----------------------------------------|----------------------------------------|
+| Vertex and pixel (14,247) | 14,247 / 14,220 / 14,247               | 14,247 / **14,247** / 14,247           |
+| Compute (2,734)           | 2,726 / 2,726 / **2,697** (29 refused) | 2,729 / 2,729 / **2,729** (0 refused)  |
+| Mesh (8,765)              | 8,765 / 8,673 / 8,765                  | 8,765 / 8,694 / 8,765                  |
+
+- The 29 refused compute programs included particle visibility and emitters, hair shadow masks,
+  screen-space reflection tiling and an alpha transmission filter. All now get pipelines.
+- The structure builder's 3 programs that did not translate without `VICTORY_FIRSTLANE_OWN=1`
+  now translate, so all of its programs have pipelines.
+- 27 vertex and pixel programs and 21 mesh programs that the validator refused (signature rows
+  packed with mixed interpolation, a texel coordinate out of bounds) now validate.
+- Left: 71 mesh programs over D3D12's 32 KiB of outputs alone (linked with their pixel program
+  during a run, #854), 5 compute programs that read a descriptor only as data, and 195 voxel
+  geometry programs the title does not use.
+- No program that passed before fails now; 83 more pass.
 
 ## Known faults
 
 - Green and red stripes, or a pixelated look, on some characters' arms.
 - The welcome screen steps back and forth without `SAFE`.
 - Grainy speckle on hair and walls (ray-tracing noise), and bright stair-step blocks near windows.
-- Before the shader fixes, the driver refused four compute pipelines with E_INVALIDARG, and each
-  dropped one draw per frame. #823 is meant to make those four run; not yet confirmed in a run.
+- Before the shader fixes, the driver refused compute pipelines with E_INVALIDARG (four in a run,
+  29 over the whole pack), and each dropped its work. With them, every compute program gets a
+  pipeline (above); not yet confirmed in a run.
 - On a 12 GB card, video memory overflows into shared memory and system RAM fills up: 32 GB of RAM
   is tight.
