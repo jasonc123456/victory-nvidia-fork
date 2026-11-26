@@ -1,5 +1,8 @@
 # VIctory on an RX 7900 XTX
 
+> **victory-nvidia-fork:** this copy adds fixes for NVIDIA cards, a launcher script and a log
+> collector. See [NVIDIA.md](NVIDIA.md) for the changes and for how to make your own start file.
+
 A fork of [VIctory](https://github.com/Marvisak/VIctory), a compatibility layer
 that runs an Xbox Series title natively on Windows from files the user supplies.
 This one is about **speed on AMD RDNA 3**: the world at 30 frames a second on
