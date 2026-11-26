@@ -137,6 +137,21 @@ fn fallback(keys: &[KeyState]) -> PadState {
     }
 }
 
+/// Whether a pad gets a new reading every poll, changed or not
+/// (`VICTORY_PAD_REPEAT=0`: only when it changes, as before).
+///
+/// The title takes a pad's current reading every frame and, it looks, takes
+/// one that has grown old for no input: with readings only at changes, a
+/// stick held still (or at its end) gave none for seconds, and the
+/// character stood still while the stick was held; opening and closing a
+/// menu gave a second or two of movement (traced 2026-11-25: the pad's
+/// readings reached the title, seconds apart). A pad reports at a steady
+/// rate, and the title's history walks are of the keyboard only.
+fn pad_repeat() -> bool {
+    static ON: LazyLock<bool> = LazyLock::new(|| std::env::var_os("VICTORY_PAD_REPEAT").is_none_or(|v| v != "0"));
+    *ON
+}
+
 /// Two pads as one: buttons of both, and of each axis and trigger the one
 /// pushed further.
 fn merged(a: PadState, b: PadState) -> PadState {
@@ -513,8 +528,12 @@ impl State {
         let slot = &mut self.slots[index];
         let was = slot.connected;
         slot.connected = value.is_some();
+        // A pad's state is read again every poll even when nothing changed,
+        // as a pad reports at a steady rate ([`pad_repeat`]); key changes
+        // only, which the title walks one by one.
+        let repeat = matches!(value, Some(Value::Pad(_))) && pad_repeat();
         if let Some(value) = value
-            && (!was || slot.history.back().is_none_or(|r| r.value != value))
+            && (!was || repeat || slot.history.back().is_none_or(|r| r.value != value))
         {
             slot.sequence += 1;
             if slot.history.len() == HISTORY {
@@ -1525,11 +1544,12 @@ mod tests {
         let first = current(hub, GAMEPAD_KIND, 1).unwrap();
         assert_eq!(pad(first).buttons, A);
         assert_eq!(pad(first).left_x, 0.5);
-        // No change, no new reading.
+        // No change: a new reading all the same, with the same state (a pad
+        // reports at a steady rate: `pad_repeat`).
         hub.poll();
         let again = current(hub, GAMEPAD_KIND, 1).unwrap();
-        assert_eq!(again, first);
-        release(again);
+        assert_ne!(again, first);
+        assert_eq!((pad(again).buttons, pad(again).left_x), (A, 0.5));
 
         std::thread::sleep(Duration::from_millis(2));
         host.lock().unwrap().pads[1].as_mut().unwrap().buttons = B;
@@ -1538,15 +1558,18 @@ mod tests {
         assert_eq!(pad(second).buttons, B);
         let (t1, s1) = stamp(first);
         let (t2, s2) = stamp(second);
-        assert!(t2 > t1 && s2 == s1 + 1);
+        assert!(t2 > t1 && s2 == s1 + 2);
         assert!(t2 <= now());
 
-        // The title's edge check: previous of current, and back again.
-        assert_eq!(walk(hub, 0x30, second), Ok(first));
-        assert_eq!(walk(hub, 0x28, first), Ok(second));
+        // The title's edge check: previous of current, and back again (the
+        // repeated reading lies between).
+        assert_eq!(walk(hub, 0x30, second), Ok(again));
+        assert_eq!(walk(hub, 0x30, again), Ok(first));
+        assert_eq!(walk(hub, 0x28, first), Ok(again));
+        assert_eq!(walk(hub, 0x28, again), Ok(second));
         assert_eq!(walk(hub, 0x28, second), Err(READING_NOT_FOUND));
         assert_eq!(walk(hub, 0x30, first), Err(READING_NOT_FOUND));
-        for r in [first, first, second, second] {
+        for r in [first, first, again, again, again, second, second] {
             release(r);
         }
 
