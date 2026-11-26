@@ -4882,6 +4882,7 @@ impl Host {
         stage.next("landing: the rest");
         self.log_messages();
         crate::land::spent(crate::land::stat::REST, telling);
+        tables_back(&mut landed);
         RELAY_STATS[4].fetch_add(landing.elapsed().as_micros() as u64, Ordering::Relaxed);
         {
             let mut line = line();
@@ -5339,6 +5340,7 @@ impl Host {
                 FINISHED.store(last, Ordering::Release);
                 bury(last);
             }
+            tables_back(&mut landed);
             line().landed.extend(landed);
         }
         if counted {
@@ -10386,3 +10388,23 @@ mod batch {   // Batch::texture_due lives here; `mod tests` is already taken at 
     }
 }
 
+
+/// Gives back the dynamic descriptor slots of flights that have landed (the
+/// card has run them), at once, not when their lists are reset
+/// [`bury_lag`] submissions later (`VICTORY_EARLY_TABLES=0`: then, as
+/// before). On a host whose view heap is capped at 1,000,000 (NVIDIA) the
+/// dynamic slots are 2^18; held for 64 more submissions, several frames of
+/// tables, 200 to 3,400 of the 5,000 to 15,000 tables a frame asks for were
+/// refused in the world and their draws dropped: the scene stopped being
+/// drawn and the picture froze (2026-11-25, RTX 4060 Laptop).
+fn tables_back(landed: &mut [(Vec<crate::list::Detached>, Vec<usize>)]) {
+    static ON: OnceLock<bool> = OnceLock::new();
+    if !*ON.get_or_init(|| std::env::var_os("VICTORY_EARLY_TABLES").is_none_or(|v| v != "0")) {
+        return;
+    }
+    for (lists, _) in landed.iter_mut() {
+        for list in lists.iter_mut() {
+            list.tables_done();
+        }
+    }
+}

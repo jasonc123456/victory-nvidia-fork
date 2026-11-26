@@ -2516,3 +2516,12 @@ mod tests {
         }
     }
 }
+
+#[cfg(windows)]
+impl Detached {
+    /// Its submission has run: the dynamic slots of its tables are given
+    /// back ([`crate::draw::State::tables_done`]).
+    pub(crate) fn tables_done(&mut self) {
+        self._state.tables_done();
+    }
+}
