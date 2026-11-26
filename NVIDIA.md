@@ -3,10 +3,10 @@
 A fork of the VIctory-7900XTX fork (avatarmanz/VIctory-7900XTX, itself from fxceless/victory-fork),
 with changes for NVIDIA cards. It holds no title files: you supply your own.
 
-Upstream's work is merged in up to avatarmanz b0cfe2b (2026-11-26). It includes the processor-side
-speedups (`VICTORY_SYNC_IN_PLACE`, `VICTORY_SPANS_QUICK`, `VICTORY_METER_THREAD`, `VICTORY_SEND_OWN`, all on)
-and switches still off by default, to try through `MORE=`: `VICTORY_UP_QUEUE=1`,
-`VICTORY_JOIN_BARRIERS=1`, `VICTORY_LANE_CORE=1`.
+Upstream's work is merged in up to avatarmanz 9c23e8d (2026-11-26). It includes the processor-side
+speedups (`VICTORY_SYNC_IN_PLACE`, `VICTORY_SPANS_QUICK`, `VICTORY_METER_THREAD`, `VICTORY_SEND_OWN`,
+`VICTORY_SHOW_NEW_LATER`, all on) and switches still off by default, to try through `MORE=`:
+`VICTORY_UP_QUEUE=1`, `VICTORY_JOIN_BARRIERS=1`, `VICTORY_LANE_CORE=1`, `VICTORY_PORT_CONSTANTS=1`.
 
 ## Changes on top of the 7900XTX fork
 
@@ -165,9 +165,11 @@ show where a frame's time goes:
 | RTX 4060 Laptop 8 GB, i7-13650HX             | ray tracing, separate pads, safe, low VRAM      | 4.2-4.7 fps in the first playable area, complete picture. GPU 110-165 ms and CPU 61-71 ms per frame; video memory full |
 | RTX 5070 12 GB, i7-14700K, 32 GB             | ray tracing, separate pads, safe, low VRAM auto (off) | Before upstream b0cfe2b: 4.5-5.7 fps in the world (dips to 2.2). 130-160 ms of each frame preparing on the processor side, 40-50 ms copying back; 11.2 of 12 GB video memory plus 8.1 GB shared, RAM at 96% |
 | RTX 5070 12 GB, i7-14700K, 32 GB             | same, with upstream b0cfe2b                     | About 7 fps on average in an early indoor area; visual faults remain |
+| RTX 5070 12 GB, i7-14700K, 32 GB             | same, at one spot of that area: without / with the shader fixes | Without: 6.3 fps, 102 ms preparing, 31 ms GPU, 3,237 draws. With: 6.0 fps, 87 ms preparing, 59 ms GPU, 4,581 draws, no pipeline refused, the structure builder on with all 53 pipelines. The same within run-to-run noise (6-7 fps either way); visual faults unchanged |
 
-The shader fixes above were ported after these runs; their effect on frame rate and the picture
-has not been measured in a run yet. Still to compare: `LOW_VRAM=1` against `auto` on a 12 GB card.
+With the shader fixes, the first start after an update rebuilds every pipeline while it plays
+(hundreds at first, 1.5-4 fps for a minute or two); the second start loads them from the cache.
+Still to compare: `LOW_VRAM=1` against `auto` on a 12 GB card.
 
 ### Shader pack on an RTX 5070 (32-lane waves)
 
@@ -201,6 +203,7 @@ made by the driver:
 - Grainy speckle on hair and walls (ray-tracing noise), and bright stair-step blocks near windows.
 - Before the shader fixes, the driver refused compute pipelines with E_INVALIDARG (four in a run,
   29 over the whole pack), and each dropped its work. With them, every compute program gets a
-  pipeline (above); not yet confirmed in a run.
+  pipeline, and a run refuses none.
+- Brief flashes of wrong-looking surfaces for a split second, with or without the shader fixes.
 - On a 12 GB card, video memory overflows into shared memory and system RAM fills up: 32 GB of RAM
   is tight.

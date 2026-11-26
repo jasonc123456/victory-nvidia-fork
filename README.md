@@ -9,7 +9,8 @@
 > frame is bound by the processor side's preparing (130-160 ms a frame before that), not by the
 > card. A 12 GB card still spills about 8 GB into shared memory. Since 2026-11-26 the fork also
 > carries the NVIDIA shader fixes of fxceless's pull requests (32-lane waves): on an RTX 5070,
-> every compute program of the title now gets a pipeline (29 were refused before). Everything below
+> every compute program of the title now gets a pipeline (29 were refused before), at the same
+> 6-7 fps once the first start has rebuilt its pipelines. Everything below
 > this box is upstream's own description of the RX 7900 XTX fork.
 
 A fork of [VIctory](https://github.com/Marvisak/VIctory), a compatibility layer
