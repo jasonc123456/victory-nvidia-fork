@@ -1,7 +1,16 @@
 # VIctory on an RX 7900 XTX
 
 > **victory-nvidia-fork:** this copy adds fixes for NVIDIA cards, a launcher script and a log
-> collector. See [NVIDIA.md](NVIDIA.md) for the changes and for how to make your own start file.
+> collector. See [NVIDIA.md](NVIDIA.md) for the changes, the results on NVIDIA cards, and how to
+> make your own start file.
+>
+> **On NVIDIA (2026-11-26):** about 7 fps in the world on an RTX 5070 12 GB (ray tracing, Series
+> S mode), up from 4.5-5.7 before this fork took in upstream's latest processor-side work. The
+> frame is bound by the processor side's preparing (130-160 ms a frame before that), not by the
+> card. A 12 GB card still spills about 8 GB into shared memory. Since 2026-11-26 the fork also
+> carries the NVIDIA shader fixes of fxceless's pull requests (32-lane waves): on an RTX 5070,
+> every compute program of the title now gets a pipeline (29 were refused before). Everything below
+> this box is upstream's own description of the RX 7900 XTX fork.
 
 A fork of [VIctory](https://github.com/Marvisak/VIctory), a compatibility layer
 that runs an Xbox Series title natively on Windows from files the user supplies.

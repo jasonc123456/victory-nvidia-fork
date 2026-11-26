@@ -3,13 +3,35 @@
 A fork of the VIctory-7900XTX fork (avatarmanz/VIctory-7900XTX, itself from fxceless/victory-fork),
 with changes for NVIDIA cards. It holds no title files: you supply your own.
 
+Upstream's work is merged in up to avatarmanz b0cfe2b (2026-11-26). It includes the processor-side
+speedups (`VICTORY_SYNC_IN_PLACE`, `VICTORY_SPANS_QUICK`, `VICTORY_METER_THREAD`, `VICTORY_SEND_OWN`, all on)
+and switches still off by default, to try through `MORE=`: `VICTORY_UP_QUEUE=1`,
+`VICTORY_JOIN_BARRIERS=1`, `VICTORY_LANE_CORE=1`.
+
 ## Changes on top of the 7900XTX fork
 
+- **NVIDIA shader fixes (32-lane waves)**, from fxceless's pull requests:
+  - Console wave64 compute programs run on 32-lane cards in a paired form: each host lane runs
+    console lanes n and n + 32 (#854, Pilote Production, `VICTORY_WAVE_PAIRS=0` turns it off).
+  - Mesh programs whose outputs pass D3D12's 32 KiB are linked with their pixel program
+    (#854, `VICTORY_MESH_LINK=0` turns it off).
+  - Four compute programs the driver refused run in the wave-wide form, and the ray-tracing
+    structure builder's three scan programs read the host wave's own first lane, chosen per
+    program (#823; `VICTORY_WAVE_WIDE_ONLY` and `VICTORY_FIRSTLANE_OWN_ONLY` change the lists).
+  - The thread-group info register on 32-lane waves (#799), `ds_bpermute` across the two halves
+    (#615), LDS flags raised inside a branch (#592), a choice between two immediate samplers and
+    mesh vertex indices without their edge flag (#1112), and #1006.
+
+  They were collected for NVIDIA by blacksi (mauri9911) and ported here onto avatarmanz's newer
+  shader translator. Where both had changed the same code, this tree's version is kept:
+  descriptor reads as data, ordering by primitive (POPS), and spilled-register tracking.
 - **Series S display**: an upscaler stand-in and the interface layer, from fxceless PR 814.
   Without it, Series S mode shows a black screen with sound.
 - **Camera jitter** is taken out of that upscale.
-- **Ray tracing on NVIDIA**: `VICTORY_FIRSTLANE_OWN=1` with ray tracing on. Without it, 3 of the
-  builder's 53 programs do not translate, and ray tracing stays off.
+- **Ray tracing on NVIDIA**: the structure builder's three programs that need the host wave's own
+  first lane get it by default (#823 above). Without it, 3 of the builder's 53 programs do not
+  translate, and ray tracing stays off. The launcher used to set `VICTORY_FIRSTLANE_OWN=1`, which
+  applies it to every program; it no longer does.
 - **Controllers** get a new reading every 8 ms, not only when they change (`VICTORY_PAD_REPEAT`).
 - **Descriptor slots are given back** as soon as the card has run a submission
   (`VICTORY_EARLY_TABLES`). NVIDIA allows only 1,000,000 views, which leaves 262,144 slots for
@@ -141,10 +163,44 @@ show where a frame's time goes:
 | Machine                                      | Settings                                        | Result |
 |----------------------------------------------|-------------------------------------------------|--------|
 | RTX 4060 Laptop 8 GB, i7-13650HX             | ray tracing, separate pads, safe, low VRAM      | 4.2-4.7 fps in the first playable area, complete picture. GPU 110-165 ms and CPU 61-71 ms per frame; video memory full |
+| RTX 5070 12 GB, i7-14700K, 32 GB             | ray tracing, separate pads, safe, low VRAM auto (off) | Before upstream b0cfe2b: 4.5-5.7 fps in the world (dips to 2.2). 130-160 ms of each frame preparing on the processor side, 40-50 ms copying back; 11.2 of 12 GB video memory plus 8.1 GB shared, RAM at 96% |
+| RTX 5070 12 GB, i7-14700K, 32 GB             | same, with upstream b0cfe2b                     | About 7 fps on average in an early indoor area; visual faults remain |
+
+The shader fixes above were ported after these runs; their effect on frame rate and the picture
+has not been measured in a run yet. Still to compare: `LOW_VRAM=1` against `auto` on a 12 GB card.
+
+### Shader pack on an RTX 5070 (32-lane waves)
+
+`victory translate --validate --pipelines` over the title's shader pack and its ray-tracing
+structure builder, with `VICTORY_HOST_WAVE=32` and `VICTORY_VIEW_LIMIT=999999` as a run on this
+card reports them (without them the command translates for 64-lane waves, and NVIDIA's driver
+refuses those). 26,136 programs; translated, validated by the Windows SDK's `dxil.dll`, pipeline
+made by the driver:
+
+| Programs                  | Before the shader fixes (487d05a)      | With them                              |
+|---------------------------|----------------------------------------|----------------------------------------|
+| Vertex and pixel (14,247) | 14,247 / 14,220 / 14,247               | 14,247 / **14,247** / 14,247           |
+| Compute (2,734)           | 2,726 / 2,726 / **2,697** (29 refused) | 2,729 / 2,729 / **2,729** (0 refused)  |
+| Mesh (8,765)              | 8,765 / 8,673 / 8,765                  | 8,765 / 8,694 / 8,765                  |
+
+- The 29 refused compute programs included particle visibility and emitters, hair shadow masks,
+  screen-space reflection tiling and an alpha transmission filter. All now get pipelines.
+- The structure builder's 3 programs that did not translate without `VICTORY_FIRSTLANE_OWN=1`
+  now translate, so all of its programs have pipelines.
+- 27 vertex and pixel programs and 21 mesh programs that the validator refused (signature rows
+  packed with mixed interpolation, a texel coordinate out of bounds) now validate.
+- Left: 71 mesh programs over D3D12's 32 KiB of outputs alone (linked with their pixel program
+  during a run, #854), 5 compute programs that read a descriptor only as data, and 195 voxel
+  geometry programs the title does not use.
+- No program that passed before fails now; 83 more pass.
 
 ## Known faults
 
-- Green and red stripes on some characters' arms.
+- Green and red stripes, or a pixelated look, on some characters' arms.
 - The welcome screen steps back and forth without `SAFE`.
 - Grainy speckle on hair and walls (ray-tracing noise), and bright stair-step blocks near windows.
-- The driver refuses four compute pipelines with E_INVALIDARG, and each drops one draw per frame.
+- Before the shader fixes, the driver refused compute pipelines with E_INVALIDARG (four in a run,
+  29 over the whole pack), and each dropped its work. With them, every compute program gets a
+  pipeline (above); not yet confirmed in a run.
+- On a 12 GB card, video memory overflows into shared memory and system RAM fills up: 32 GB of RAM
+  is tight.
