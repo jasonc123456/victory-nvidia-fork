@@ -137,7 +137,9 @@ if ($Safe) {
 # The ray-tracing builder's scans read a value every lane of a console wave holds with a first-lane
 # read; on 32-lane NVIDIA waves three of its 53 programs do not translate without this, and it runs
 # all or none.
-if ($RayTracing) { $set.VICTORY_BVH_BUILDER = '1'; $set.VICTORY_BVH_QUARANTINE = '0'; $set.VICTORY_FIRSTLANE_OWN = '1' }
+# (The structure builder's three programs that need the host wave's own first lane get it by
+# default, VICTORY_FIRSTLANE_OWN_ONLY; VICTORY_FIRSTLANE_OWN=1 would give it to every program.)
+if ($RayTracing) { $set.VICTORY_BVH_BUILDER = '1'; $set.VICTORY_BVH_QUARANTINE = '0' }
 if ($SeparatePads) { $set.VICTORY_ONE_PAD = '0' }
 if ($InputTrace) { $set.VICTORY_LOG = 'info,victory_hle::modules::gameinput=trace' }
 if ($LowVram) { $set.VICTORY_TEXTURE_ROOM_PERCENT = '70'; $set.VICTORY_CARD_BUFFERS_MB = '256' }
