@@ -948,8 +948,20 @@ extern "system" fn present(
         } else {
             None
         };
+        // The second plane (the title's interface in its Series S mode), if
+        // it has one, goes along: it is drawn over the first (`crate::over`).
+        // SAFETY: the title passes `planes` plane descriptions.
+        let over = unsafe { second_plane(planes, plane_parameters, texture.as_ref().map_or(std::ptr::null(), |t| t.0 as This)) }
+            .and_then(|r| {
+                let copy = crate::resource::host_copy(r)?;
+                const READABLE: u32 = 0x80;
+                let state = crate::resource::host_transition(r, READABLE).map_or(READABLE, |(_, before)| before);
+                crate::resource::host_transition(r, state);
+                let state = if crate::list::thin::wanted() { u32::MAX } else { state };
+                Some((copy, state))
+            });
         let resource = texture.as_ref().map_or(0, |t| t.0);
-        behind::present(this, texture.map(|(_, copy, state)| (copy, state)), Shown { frame, resource });
+        behind::present(this, texture.map(|(_, copy, state)| (copy, state)), over, Shown { frame, resource });
         called.end();
         #[cfg(feature = "diagnostics")]
         frame_ends();
@@ -969,7 +981,20 @@ extern "system" fn present(
         const COPY_SOURCE: u32 = 0x800;
         let state = crate::resource::host_transition(resource, COPY_SOURCE)
             .map_or(COPY_SOURCE, |(_, before)| before);
-        show(texture, state, Shown { frame, resource: resource as usize });
+        // A second plane (the title's interface over its game image, in
+        // its Series S mode) is drawn over the first: `crate::over`.
+        const READABLE: u32 = 0x80;
+        // SAFETY: the title passes `planes` plane descriptions.
+        let second = unsafe { second_plane(planes, plane_parameters, resource) }
+            .and_then(|r| Some((r, crate::resource::host_resource(r)?)));
+        let over = second.map(|(r, t)| {
+            let was = crate::resource::host_transition(r, READABLE).map_or(READABLE, |(_, before)| before);
+            (r, t, was)
+        });
+        show(texture, state, over.map(|(_, t, was)| (t, was)), Shown { frame, resource: resource as usize });
+        if let Some((r, _, was)) = over {
+            crate::resource::host_transition(r, was);
+        }
         crate::resource::host_transition(resource, state);
         let _ = host;
     }
@@ -1003,15 +1028,46 @@ struct Shown {
 
 /// Shows `texture`, in host state `state`, in our window.
 #[cfg(windows)]
-fn show(texture: &windows::Win32::Graphics::Direct3D12::ID3D12Resource, state: u32, what: Shown) {
+fn show(
+    texture: &windows::Win32::Graphics::Direct3D12::ID3D12Resource,
+    state: u32,
+    over: Option<(&windows::Win32::Graphics::Direct3D12::ID3D12Resource, u32)>,
+    what: Shown,
+) {
     let Some(host) = crate::host::host() else {
         return;
     };
-    let shown = host.present(texture, state, what.frame);
+    let shown = host.present(texture, state, what.frame, over);
     #[cfg(feature = "diagnostics")]
     blinks(what.frame, what.resource as This, state, shown);
     #[cfg(not(feature = "diagnostics"))]
     let _ = (shown, what.resource);
+}
+
+/// The bytes from one plane's description to the next in a present.
+#[cfg(windows)]
+const PLANE_STRIDE: usize = 0x48;
+
+/// The first resource of a present's second plane, if it has one that is not
+/// the first plane's (`first`): what is drawn over the first. From
+/// fxceless/victory-fork PR 814 (ece4a19).
+///
+/// # Safety
+/// `parameters` is null or points at `planes` plane descriptions,
+/// [`PLANE_STRIDE`] bytes apart, each listing `count` resources.
+#[cfg(windows)]
+unsafe fn second_plane(planes: u32, parameters: *const Plane, first: This) -> Option<This> {
+    if planes < 2 || parameters.is_null() {
+        return None;
+    }
+    // SAFETY: the caller's: a second description follows the first.
+    let plane = unsafe { &*parameters.cast::<u8>().add(PLANE_STRIDE).cast::<Plane>() };
+    if plane.count == 0 || plane.resources.is_null() {
+        return None;
+    }
+    // SAFETY: the caller's: the plane lists `count` resources.
+    let resource = unsafe { *plane.resources };
+    (!resource.is_null() && resource != first).then_some(resource)
 }
 
 /// Diagnostics: logs a presented frame that is black after one that was

@@ -447,6 +447,18 @@ plain! {
     WAIT_VALUE wait_value = super::wait_value, (address: u64, comparison: u32, reference: u64);
     WAIT_VALUE64 wait_value64 = super::wait_value64, (address: u64, comparison: u32, reference: u64);
     SYNC sync = super::sync, (flags: u32, control: u32, address: u64, size: u64);
+    UPSCALE upscale = upscale_run, (colour: This, output: This, width: u32, height: u32);
+}
+
+/// The console upscaler's stand-in ([`super::upscale_stretch`]), written down
+/// in its place among the list's calls.
+pub(super) fn upscale_later(this: This, colour: This, output: This, render: [u32; 2]) {
+    upscale(this, colour, output, render[0], render[1]);
+}
+
+/// What [`upscale_later`] wrote down, done on our list.
+fn upscale_run(list: This, colour: This, output: This, width: u32, height: u32) {
+    super::upscale_now(list, colour, output, width, height);
 }
 
 const fn after(n: u64) -> u64 {

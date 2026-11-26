@@ -8803,7 +8803,16 @@ impl Host {
     /// Shows `texture`, which is in `state` (a host state) and stays in it,
     /// as frame `frame` (saved if captures are on). `None` if nothing was
     /// shown; else, in diagnostics builds, whether the frame was black.
-    pub(crate) fn present(&self, texture: &ID3D12Resource, state: u32, frame: u64) -> Option<bool> {
+    ///
+    /// `over`: a second plane (the title's interface in its Series S mode) and
+    /// the host state it is in and stays in, drawn over the first ([`crate::over`]).
+    pub(crate) fn present(
+        &self,
+        texture: &ID3D12Resource,
+        state: u32,
+        frame: u64,
+        over: Option<(&ID3D12Resource, u32)>,
+    ) -> Option<bool> {
         // SAFETY: a live resource.
         let desc = unsafe { texture.GetDesc() };
         let Some(format) = swap_format(desc.Format) else {
@@ -8888,6 +8897,29 @@ impl Host {
                 ),
             ]);
             list.CopyResource(&back, texture);
+            // The present's second plane, if it has one, goes over the copy
+            // (`crate::over`, from fxceless/victory-fork PR 814): the back buffer
+            // is a render target meanwhile, and in the copy state again after.
+            if let Some((plane, was)) = over
+                && let Some(plane_format) = swap_format(plane.GetDesc().Format)
+            {
+                let readable = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                let was = D3D12_RESOURCE_STATES(was as i32);
+                let moved = was.0 & readable.0 == 0;
+                let mut barriers =
+                    vec![transition(&back, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET)];
+                if moved {
+                    barriers.push(transition(plane, was, readable));
+                }
+                list.ResourceBarrier(&barriers);
+                crate::over::record(&self.device, list, &back, format, (width, height), plane, plane_format);
+                let mut barriers =
+                    vec![transition(&back, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_DEST)];
+                if moved {
+                    barriers.push(transition(plane, readable, was));
+                }
+                list.ResourceBarrier(&barriers);
+            }
             #[cfg(feature = "diagnostics")]
             let capture = crate::capture::wanted(frame)
                 .then(|| crate::capture::read_back(&self.device, list, texture))

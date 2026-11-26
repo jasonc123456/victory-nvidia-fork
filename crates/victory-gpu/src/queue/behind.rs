@@ -392,7 +392,8 @@ enum Job {
     /// A signal of the queue's.
     Signal(usize, u64),
     /// A frame is shown: the texture and the state its lists leave it in.
-    Present(Option<(std::sync::Arc<crate::resource::HostTexture>, u32)>, super::Shown),
+    /// With the second plane's, if there is one (drawn over the first).
+    Present(Option<(std::sync::Arc<crate::resource::HostTexture>, u32)>, Option<(std::sync::Arc<crate::resource::HostTexture>, u32)>, super::Shown),
 }
 
 // SAFETY: D3D12 objects are free-threaded; a job is touched by whoever put it
@@ -569,12 +570,16 @@ impl Work for Job {
                     crate::fence::set(fence as This, value);
                 }
             }
-            Job::Present(texture, shown) => {
+            Job::Present(texture, over, shown) => {
                 if let Some((texture, state)) = texture {
                     // (Where its lists were not translated when the title
                     // presented: the state they left it in.)
                     let state = if state == u32::MAX { texture.state.load(Relaxed) } else { state };
-                    super::show(&texture.texture, state, shown);
+                    let over = over.as_ref().map(|(plane, was)| {
+                        let was = if *was == u32::MAX { plane.state.load(Relaxed) } else { *was };
+                        (&plane.texture, was)
+                    });
+                    super::show(&texture.texture, state, over, shown);
                 }
                 QUEUED.fetch_sub(1, Relaxed);
             }
@@ -811,10 +816,15 @@ pub(super) fn wait(this: This, fence: This, value: u64) {
 
 /// A present on queue `this` of `texture`, in the state the lists recorded so
 /// far leave it in.
-pub(super) fn present(this: This, texture: Option<(std::sync::Arc<crate::resource::HostTexture>, u32)>, shown: super::Shown) {
+pub(super) fn present(
+    this: This,
+    texture: Option<(std::sync::Arc<crate::resource::HostTexture>, u32)>,
+    over: Option<(std::sync::Arc<crate::resource::HostTexture>, u32)>,
+    shown: super::Shown,
+) {
     QUEUED.fetch_add(1, Relaxed);
     STATS[PRESENTS].fetch_add(1, Relaxed);
-    LANE.push(this as usize, [Job::Present(texture, shown)]);
+    LANE.push(this as usize, [Job::Present(texture, over, shown)]);
     let began = Instant::now();
     let _waiting = crate::timeline::span("a present waits for the one before it to be sent");
     LANE.wait_presents(frames_most());
