@@ -89,6 +89,7 @@ extern "system" fn dispatch(context: *mut *mut c_void, desc: *const Header) -> u
                     "upscale dispatch"
                 );
             }
+            note_textures(d);
             #[cfg(windows)]
             if victory_gpu::list::upscale_stretch(
                 d.list,
@@ -97,16 +98,22 @@ extern "system" fn dispatch(context: *mut *mut c_void, desc: *const Header) -> u
                 d.render,
                 d.jitter,
             ) {
+                count(STRETCHED);
                 return 0;
             }
+            count(NOT_STRETCHED);
             if first {
                 tracing::warn!("upscale dispatch not stretched: left to the title's upscaler");
             }
-        } else if first {
-            tracing::info!(
-                kind = format_args!("{:#x}", header.kind),
-                "another FidelityFX dispatch"
-            );
+        } else {
+            count(OTHER);
+            note_kind(header.kind);
+            if first {
+                tracing::info!(
+                    kind = format_args!("{:#x}", header.kind),
+                    "another FidelityFX dispatch"
+                );
+            }
         }
     }
     match REAL.load(Ordering::Relaxed) {
@@ -169,4 +176,66 @@ mod tests {
 /// for the dispatches passed on.
 pub fn dispatch_address() -> usize {
     dispatch as *const () as usize
+}
+
+// Debugging a picture that stops being renewed: what the dispatches were,
+// a line every two seconds of them, and each change of what an upscale reads
+// and writes.
+const STRETCHED: usize = 0;
+const NOT_STRETCHED: usize = 1;
+const OTHER: usize = 2;
+static COUNTS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
+
+fn count(which: usize) {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    COUNTS[which].fetch_add(1, Ordering::Relaxed);
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let now = Instant::now();
+    match *last {
+        None => *last = Some(now),
+        Some(t) if now.duration_since(t) >= Duration::from_secs(2) => {
+            let [s, n, o] = [0, 1, 2].map(|i| COUNTS[i].swap(0, Ordering::Relaxed));
+            tracing::info!(
+                stretched = s,
+                not_stretched = n,
+                other = o,
+                seconds = format_args!("{:.1}", now.duration_since(t).as_secs_f32()),
+                "FidelityFX dispatches since the last line"
+            );
+            *last = Some(now);
+        }
+        Some(_) => {}
+    }
+}
+
+fn note_textures(d: &Upscale) {
+    use std::sync::Mutex;
+    static LAST: Mutex<(usize, usize, [u32; 2])> = Mutex::new((0, 0, [0, 0]));
+    static TOLD: AtomicU32 = AtomicU32::new(0);
+    let now = (d.colour.resource as usize, d.output.resource as usize, d.render);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if *last != now {
+        if TOLD.fetch_add(1, Ordering::Relaxed) < 200 {
+            tracing::info!(
+                colour = format_args!("{:#x}", now.0),
+                output = format_args!("{:#x}", now.1),
+                render = ?now.2,
+                list = ?d.list,
+                "an upscale reads or writes other textures than the one before"
+            );
+        }
+        *last = now;
+    }
+}
+
+fn note_kind(kind: u64) {
+    use std::sync::Mutex;
+    static KINDS: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+    let mut kinds = KINDS.lock().unwrap_or_else(|e| e.into_inner());
+    if !kinds.contains(&kind) {
+        kinds.push(kind);
+        tracing::info!(kind = format_args!("{kind:#x}"), "a new kind of FidelityFX dispatch");
+    }
 }

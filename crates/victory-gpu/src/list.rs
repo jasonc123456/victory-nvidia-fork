@@ -829,11 +829,21 @@ pub fn upscale_stretch(
     jitter: [f32; 2],
 ) -> bool {
     let (this, colour, output): (This, This, This) = (this.cast(), colour.cast(), output.cast());
+    let refuse = |why: &str| {
+        static TOLD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        if TOLD.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 50 {
+            tracing::warn!(why, ?colour, ?output, "an upscale is not stretched");
+        }
+        false
+    };
     if this.is_null() || colour.is_null() || output.is_null() || crate::host::host().is_none() {
-        return false;
+        return refuse("no list, no texture, or no host GPU");
     }
-    if crate::resource::host_resource(colour).is_none() || crate::resource::host_resource(output).is_none() {
-        return false;
+    if crate::resource::host_resource(colour).is_none() {
+        return refuse("the colour input has no host texture");
+    }
+    if crate::resource::host_resource(output).is_none() {
+        return refuse("the output has no host texture");
     }
     if host_list(this).is_none() && thin::on() {
         thin::upscale_later(this, colour, output, render, jitter);
