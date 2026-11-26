@@ -118,6 +118,19 @@ fn recheck_soon() -> bool {
     *ON.get_or_init(|| std::env::var_os("VICTORY_RECHECK_SOON").is_none_or(|v| v != "0"))
 }
 
+/// After the looks of [`RECHECK_FRAMES`], an uploaded texture picked by index is looked at
+/// again every this many frames for the rest of the run (`VICTORY_RECHECK_EVERY=<frames>`;
+/// unset or 0: never, as before). The title rewrites some textures' memory long after their
+/// upload with nothing to tell of it: 133 still changed at the last look (576 frames after
+/// their upload) in a run on an RTX 5070, and a change after that look stayed unseen, the
+/// card showing what the memory held before (stripes of other textures on characters' arms).
+fn recheck_every() -> Option<u64> {
+    static EVERY: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+    *EVERY.get_or_init(|| {
+        std::env::var("VICTORY_RECHECK_EVERY").ok().and_then(|v| v.trim().parse().ok()).filter(|&n: &u64| n > 0)
+    })
+}
+
 /// Frames ahead the pass before a bake takes slots from that are due only
 /// then ([`bake_exact`]): those of notices (1 and 2), and the first looks
 /// again ([`RECHECK_FRAMES`]), these at the frame's first bake alone (a
@@ -2273,7 +2286,14 @@ impl State {
                         Some(wait) => {
                             host.texture_slot_recheck(index, write, frame + wait, (at, len), print, looks + 1, uploaded)
                         }
-                        None => host.texture_slot_done(index, write, None),
+                        // (the schedule's last look: looked at every `recheck_every` frames from
+                        // here on, at the same count of looks)
+                        None => match recheck_every() {
+                            Some(every) => {
+                                host.texture_slot_recheck(index, write, frame + every, (at, len), print, looks, uploaded)
+                            }
+                            None => host.texture_slot_done(index, write, None),
+                        },
                     }
                     continue;
                 }
