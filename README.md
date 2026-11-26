@@ -17,7 +17,12 @@
 > processor side is the whole frame. `VICTORY_RECHECK_EVERY=120` (new here) and
 > `VICTORY_TEXTURE_ROOM_PERCENT=95` fix stale and missing textures at no measured cost.
 > Upstream's commits after 9c23e8d, its renderer patches and P-core pinning were tried and not
-> kept: all are measured in [NVIDIA.md](NVIDIA.md). Everything below this box is upstream's own
+> kept: all are measured in [NVIDIA.md](NVIDIA.md).
+>
+> **Later still:** the release build (`RELEASE=1`) prepares 10-15% less than the diagnostics
+> build. With `VICTORY_CARD_BUFFERS_MIN_KB=64 VICTORY_LEVELS_ON_DEMAND=1` (from codec-d/cool_fox's
+> launcher) an RTX 5070 runs about 7.3 fps outside (median), up from 6.4, and the card is no longer
+> waited for. `SAFE=0` stays slower on 32 GB of RAM. Everything below this box is upstream's own
 > description of the RX 7900 XTX fork.
 
 A fork of [VIctory](https://github.com/Marvisak/VIctory), a compatibility layer

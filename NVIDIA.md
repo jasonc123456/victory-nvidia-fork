@@ -90,7 +90,7 @@ the repository.
    set SERIES_X=0
    rem auto: on for cards with 8 GB or less.
    set LOW_VRAM=auto
-   set RELEASE=0
+   set RELEASE=1
    set INPUT_TRACE=0
    rem Further settings, space-separated, e.g. set "MORE=VICTORY_TEXTURE_ROOM_PERCENT=85"
    set "MORE="
@@ -131,16 +131,16 @@ On every start, the launcher checks:
 | `GAME`          | empty     | The title's main executable. Empty: picked once per PC             |
 | `RAYTRACING`    | 0 or 1    | Ray-traced light (lit shadows). 0 is 30-45% faster on a 12 GB card; rooms are darker |
 | `SEPARATE_PADS` | 1         | Each controller is its own device                                  |
-| `SAFE`          | 1         | Without the fork's newest CPU shortcuts. Steadier, and no welcome-screen stepping. Try 0 on a strong CPU |
+| `SAFE`          | 1         | Without the fork's newest CPU shortcuts. Steadier, and no welcome-screen stepping. 0 was slower on an i7-14700K with 32 GB |
 | `SERIES_X`      | 0         | Series X mode instead of Series S. Needs more video memory         |
 | `LOW_VRAM`      | auto      | Less video memory for textures and copies. auto: on for 8 GB cards or smaller |
-| `RELEASE`       | 0         | Release build instead of the diagnostics build                     |
+| `RELEASE`       | 1         | Release build instead of the diagnostics build: 10-15% less preparing on the processor side. 0 keeps the device-removed breadcrumbs, for a crash to look into |
 | `INPUT_TRACE`   | 0         | Log every controller reading                                       |
 | `MORE`          | see below | Further settings, space-separated                                  |
 
 Suggested `MORE` on an RTX 5070 12 GB (each measured, see *Results*):
 
-    set "MORE=VICTORY_UP_QUEUE=1 VICTORY_JOIN_BARRIERS=1 VICTORY_RECHECK_EVERY=120 VICTORY_TEXTURE_ROOM_PERCENT=95"
+    set "MORE=VICTORY_UP_QUEUE=1 VICTORY_JOIN_BARRIERS=1 VICTORY_RECHECK_EVERY=120 VICTORY_TEXTURE_ROOM_PERCENT=95 VICTORY_CARD_BUFFERS_MIN_KB=64 VICTORY_LEVELS_ON_DEMAND=1"
 
 - `VICTORY_UP_QUEUE=1 VICTORY_JOIN_BARRIERS=1`: about 7% faster together.
 - `VICTORY_RECHECK_EVERY=120`: textures the title changes late are caught (above).
@@ -148,6 +148,11 @@ Suggested `MORE` on an RTX 5070 12 GB (each measured, see *Results*):
   On a 12 GB card, the passes that found no room for a texture fell from 19,341 to 181, and
   objects that were drawn black got their textures, at the same frame rate. Lower values (or
   `LOW_VRAM=1`, which sets 70) only make more textures wait.
+- `VICTORY_CARD_BUFFERS_MIN_KB=64 VICTORY_LEVELS_ON_DEMAND=1` (from the launcher of
+  codec-d/cool_fox): title buffers from 64 KiB up get a copy in the card's memory, so shaders
+  stop reading them over PCIe, and textures take the card's memory level by level. On a 12 GB
+  card: 6.4 to 7.3 fps outside, the card no longer waited for, more draws kept, textures as
+  before. The card's memory is then full, and about 0.8 GB of 32 GB RAM stays free.
 
 Flags typed after the file's name in a terminal are added to the ones set in the file:
 
@@ -188,10 +193,12 @@ show where a frame's time goes:
 | RTX 5070 12 GB, i7-14700K, 32 GB             | same, at one spot of that area: without / with the shader fixes | Without: 6.3 fps, 102 ms preparing, 31 ms GPU, 3,237 draws. With: 6.0 fps, 87 ms preparing, 59 ms GPU, 4,581 draws, no pipeline refused, the structure builder on with all 53 pipelines. The same within run-to-run noise (6-7 fps either way); visual faults unchanged |
 | RTX 5070 12 GB, i7-14700K, 32 GB             | outside, one save and place (about 6,000-11,000 draws): ray tracing on / off | On: 4.5-5 fps, about 210 ms a frame. **Off: 5.5-7.4 fps, 144-158 ms** (about 10 fps indoors). With ray tracing off the card works only 3-47 ms a frame: the frame is the processor side's preparing (about 105 ms) and copying back (about 42 ms) |
 | RTX 5070 12 GB, i7-14700K, 32 GB             | ray tracing off, with `VICTORY_RECHECK_EVERY=120` and `VICTORY_TEXTURE_ROOM_PERCENT=95` | Same frame rate; stale textures caught about 4 times as often; textures left without room 181 times instead of 19,341, and black objects textured again |
+| RTX 5070 12 GB, i7-14700K, 32 GB             | the same, `RELEASE=1` instead of the diagnostics build (11 minutes outside) | Preparing 99 ms instead of 103-121, copying back 40 instead of 44-50: 10-15% less on the processor side. 6.4 fps median over the run, 8-9 fps more often; no new warnings |
+| RTX 5070 12 GB, i7-14700K, 32 GB             | release, with `VICTORY_CARD_BUFFERS_MIN_KB=64 VICTORY_LEVELS_ON_DEMAND=1` | **7.3 fps median outside, 138 ms** (from 6.4 and 155). The card is never waited for (0 ms, from 17); about 9,800 draws a frame, about 200 dropped (from 8,000 and 1,700). Textures look the same; the card's memory is full (11.5 of 12 GB, 7.8 GB shared) |
 
 With the shader fixes, the first start after an update rebuilds every pipeline while it plays
 (hundreds at first, 1.5-4 fps for a minute or two); the second start loads them from the cache.
-`LOW_VRAM=1` on a 12 GB card was slower than `auto` (4.2 fps), as was `SAFE=0`.
+`LOW_VRAM=1` on a 12 GB card was slower than `auto` (4.2 fps), as was `SAFE=0` (with it and on its own).
 
 ### Tried on an RTX 5070, and not kept
 
@@ -203,6 +210,7 @@ Each in the same place as the results above, against this tree:
 | Renderer patch 1 `VICTORY_PORT_CONSTANTS=1` and patch 2 `VICTORY_PORT_DESCRIPTORS=1` (upstream 9997d25, 4cb90be) | Preparing halves, but the card reads the constants over PCIe: card time 88-163 ms with ray tracing, 105-233 ms without (from 3-47). Same fps with ray tracing, slower and a broken picture without (black sky, dark blotches). Patch 2 also misses 1,000-5,000 view records a run, which its fallback has to make |
 | The whole process on the P-cores only (i7-14700K) | No faster: preparing 3-5 ms shorter, but the title's own threads lose the E-cores |
 | Less texture room (`LOW_VRAM=1`, 70%) | Slower, and more textures wait |
+| `SAFE=0` on its own (release, with the memory switches) | 6.9 fps against 7.3: preparing 108 ms instead of 117, but the card is waited for again (13 ms, up to 48) and 1 GB more memory is used (0.5 GB of RAM left). The welcome screen steps and textures look worse |
 
 ### Shader pack on an RTX 5070 (32-lane waves)
 
