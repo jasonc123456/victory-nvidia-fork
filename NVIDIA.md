@@ -153,6 +153,10 @@ Suggested `MORE` on an RTX 5070 12 GB (each measured, see *Results*):
   stop reading them over PCIe, and textures take the card's memory level by level. On a 12 GB
   card: 6.4 to 7.3 fps outside, the card no longer waited for, more draws kept, textures as
   before. The card's memory is then full, and about 0.8 GB of 32 GB RAM stays free.
+- Optional, for the picture, at no measured cost: `VICTORY_INDIRECT_REST=0` (an indirect record
+  that does not fit its list's budget no longer empties the records after it; refusals in the log
+  went from 11-18 lines a run to 1) and `VICTORY_AMBIENT_AIR=1.5` (less haze from the ambient
+  stand-in with ray tracing off). On an RTX 5070 the picture looked about the same with both.
 
 Flags typed after the file's name in a terminal are added to the ones set in the file:
 
@@ -210,6 +214,8 @@ Each in the same place as the results above, against this tree:
 | Renderer patch 1 `VICTORY_PORT_CONSTANTS=1` and patch 2 `VICTORY_PORT_DESCRIPTORS=1` (upstream 9997d25, 4cb90be) | Preparing halves, but the card reads the constants over PCIe: card time 88-163 ms with ray tracing, 105-233 ms without (from 3-47). Same fps with ray tracing, slower and a broken picture without (black sky, dark blotches). Patch 2 also misses 1,000-5,000 view records a run, which its fallback has to make |
 | The whole process on the P-cores only (i7-14700K) | No faster: preparing 3-5 ms shorter, but the title's own threads lose the E-cores |
 | Less texture room (`LOW_VRAM=1`, 70%) | Slower, and more textures wait |
+| Ray-tracing hit resolves and ray activation left out with ray tracing off (after codec-d/cool_fox) | 8.5-10 fps, but the colours break: purple grass and trees, near-black shade, sparkles. With ray tracing off these programs still write the light the rays fall back to; the speed was that work skipped |
+| A DirectStorage staging buffer of 256 MB instead of the title's 32 (after codec-d/cool_fox) | Slower: 6.5 fps against 7.8 at the same spot, preparing 132 ms instead of 103 and copying back 60 instead of 42 |
 | `SAFE=0` on its own (release, with the memory switches) | 6.9 fps against 7.3: preparing 108 ms instead of 117, but the card is waited for again (13 ms, up to 48) and 1 GB more memory is used (0.5 GB of RAM left). The welcome screen steps and textures look worse |
 
 ### Shader pack on an RTX 5070 (32-lane waves)
