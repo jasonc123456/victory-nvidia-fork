@@ -54,6 +54,24 @@ struct Upscale {
     motion_scale: [f32; 2],
     render: [u32; 2],
     upscale: [u32; 2],
+    // The rest of `ffxDispatchDescUpscale` (`ffx_upscale.h`), for DLSS.
+    enable_sharpening: u8,
+    sharpness: f32,
+    frame_time_delta: f32,
+    pre_exposure: f32,
+    reset: u8,
+    camera_near: f32,
+    camera_far: f32,
+    camera_fov: f32,
+    view_to_meters: f32,
+    flags: u32,
+}
+
+/// `VICTORY_UPSCALE=dlss`: NVIDIA DLSS instead of the stretch, when the
+/// build has it (the `dlss` feature) and the card does; else the stretch.
+fn want_dlss() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_UPSCALE").is_some_and(|v| v == "dlss"))
 }
 
 const _: () = assert!(size_of::<Resource>() == 48);
@@ -91,12 +109,28 @@ extern "system" fn dispatch(context: *mut *mut c_void, desc: *const Header) -> u
             }
             note_textures(d);
             #[cfg(windows)]
-            if victory_gpu::list::upscale_stretch(
+            if victory_gpu::list::upscale(
                 d.list,
-                d.colour.resource,
-                d.output.resource,
-                d.render,
-                d.jitter,
+                &victory_gpu::list::Upscale {
+                    colour: d.colour.resource as u64,
+                    depth: d.depth.resource as u64,
+                    motion: d.motion.resource as u64,
+                    exposure: d.exposure.resource as u64,
+                    output: d.output.resource as u64,
+                    render: d.render,
+                    jitter: d.jitter,
+                    motion_scale: d.motion_scale,
+                    reset: d.reset != 0,
+                    pre_exposure: d.pre_exposure,
+                    near: d.camera_near,
+                    far: d.camera_far,
+                    frame_ms: d.frame_time_delta,
+                    // ffxCreateContext is the title's own: its flags are not
+                    // known here (DLSS's VICTORY_DLSS_MV_JITTERED and the like
+                    // say what they would).
+                    create_flags: 0,
+                    dlss: want_dlss(),
+                },
             ) {
                 count(STRETCHED);
                 return 0;
@@ -152,6 +186,11 @@ mod tests {
         assert_eq!(offset_of!(Upscale, motion_scale), 0x170);
         assert_eq!(offset_of!(Upscale, render), 0x178);
         assert_eq!(offset_of!(Upscale, upscale), 0x180);
+        assert_eq!(offset_of!(Upscale, sharpness), 0x18c);
+        assert_eq!(offset_of!(Upscale, pre_exposure), 0x194);
+        assert_eq!(offset_of!(Upscale, reset), 0x198);
+        assert_eq!(offset_of!(Upscale, camera_near), 0x19c);
+        assert_eq!(offset_of!(Upscale, flags), 0x1ac);
         assert_eq!(offset_of!(Resource, description), 8);
         assert_eq!(offset_of!(Resource, state), 40);
     }

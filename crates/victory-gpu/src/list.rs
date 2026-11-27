@@ -852,6 +852,103 @@ pub fn upscale_stretch(
     upscale_now(this, colour, output, render, jitter)
 }
 
+/// What the title gives its upscale (`ffxDispatch`, Series S), for DLSS
+/// (`crate::dlss`, the `dlss` feature, `VICTORY_UPSCALE=dlss`); the stretch
+/// reads the colour, output, render size and jitter alone. Texture
+/// addresses as numbers. From aleksesipenko/VIctory-RTX.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Upscale {
+    pub colour: u64,
+    pub depth: u64,
+    pub motion: u64,
+    pub exposure: u64,
+    pub output: u64,
+    pub render: [u32; 2],
+    pub jitter: [f32; 2],
+    pub motion_scale: [f32; 2],
+    pub reset: bool,
+    pub pre_exposure: f32,
+    pub near: f32,
+    pub far: f32,
+    pub frame_ms: f32,
+    /// `FFX_API_CREATE_CONTEXT_DESC_UPSCALE.flags` (0 when not known).
+    pub create_flags: u32,
+    /// DLSS where it can, else the stretch.
+    pub dlss: bool,
+}
+
+/// The title's upscale: DLSS if `up.dlss` and it can (built with the `dlss`
+/// feature), else the stretch of [`upscale_stretch`]. A list whose calls
+/// are only written down (`VICTORY_THIN=1`) gets the stretch.
+#[cfg(windows)]
+pub fn upscale(this: *const std::ffi::c_void, up: &Upscale) -> bool {
+    let to = |a: u64| a as usize as *const std::ffi::c_void;
+    if !up.dlss || (host_list(this.cast()).is_none() && thin::on()) {
+        return upscale_stretch(this, to(up.colour), to(up.output), up.render, up.jitter);
+    }
+    let (this, colour, output): (This, This, This) = (this.cast(), to(up.colour).cast(), to(up.output).cast());
+    if this.is_null()
+        || colour.is_null()
+        || output.is_null()
+        || crate::host::host().is_none()
+        || crate::resource::host_resource(colour).is_none()
+        || crate::resource::host_resource(output).is_none()
+    {
+        return upscale_stretch(this.cast(), colour.cast(), output.cast(), up.render, up.jitter);
+    }
+    const SHADER_READ: u32 = 0x40;
+    const UNORDERED: u32 = 0x8;
+    let mut done = false;
+    with_state(this, |list, state| {
+        let (Some(dst), Some(src), Some(host)) = (
+            crate::resource::host_resource(output),
+            crate::resource::host_resource(colour),
+            crate::host::host(),
+        ) else {
+            return;
+        };
+        ensure_state(list, colour, SHADER_READ);
+        ensure_state(list, output, UNORDERED);
+        #[cfg(feature = "dlss")]
+        {
+            let input = |a: u64| {
+                let r: This = a as usize as This;
+                if r.is_null() {
+                    return None;
+                }
+                crate::resource::host_resource(r).inspect(|_| ensure_state(list, r, SHADER_READ))
+            };
+            let inputs = crate::dlss::Inputs {
+                colour: src,
+                depth: input(up.depth),
+                motion: input(up.motion),
+                exposure: input(up.exposure),
+                output: dst,
+                jitter: up.jitter,
+                motion_scale: up.motion_scale,
+                render: up.render,
+                reset: up.reset,
+                pre_exposure: up.pre_exposure,
+                near: up.near,
+                far: up.far,
+                frame_ms: up.frame_ms,
+                create_flags: up.create_flags,
+            };
+            done = crate::dlss::record(&host.device, list, &inputs);
+        }
+        if !done {
+            static TOLD: std::sync::Once = std::sync::Once::new();
+            TOLD.call_once(|| tracing::info!("DLSS was asked for (VICTORY_UPSCALE=dlss) but did not run: the upscale is a stretch"));
+            done = crate::over::record_stretch(&host.device, &list.list, dst, src, up.render, up.jitter);
+        }
+        if done {
+            crate::texture::host_written(output);
+        }
+        state.replay(list);
+    });
+    done
+}
+
 /// The stretch of [`upscale_stretch`], recorded on `this` now.
 ///
 /// The real dispatch leaves its own state in the list, so the title sets

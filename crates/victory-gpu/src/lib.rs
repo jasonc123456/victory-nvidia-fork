@@ -68,6 +68,8 @@ pub mod root;
 mod safecopy;
 #[cfg(windows)]
 mod census;
+#[cfg(all(windows, feature = "dlss"))]
+mod dlss;
 #[cfg(windows)]
 mod sampler;
 #[cfg(windows)]

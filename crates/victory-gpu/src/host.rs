@@ -2232,6 +2232,9 @@ struct Deferred {
     /// descriptor heaps): the title may release its objects before it
     /// submits the list.
     kept: Vec<windows::core::IUnknown>,
+    /// Other things the list's commands name, kept as [`kept`](Self::kept)
+    /// is (the DLSS feature a list evaluates, `crate::dlss`).
+    kept_any: Vec<Box<dyn std::any::Any + Send>>,
     /// The pipelines [`HostList::bind_pipeline`] kept, by address.
     bound: std::collections::HashSet<usize, std::hash::BuildHasherDefault<AddressHash>>,
     /// Buffer ranges refreshed since the last title copy (host copy,
@@ -7188,6 +7191,12 @@ impl HostList {
     /// next clamp moves it back to unordered access.
     pub(crate) fn indirect_readable(&self, scratch: &ID3D12Resource) {
         self.deferred().indirect_readable = scratch.as_raw() as usize;
+    }
+
+    /// Keeps `object` alive until the list is reset (what is no COM object).
+    #[allow(dead_code)]
+    pub(crate) fn keep_any(&self, object: Box<dyn std::any::Any + Send>) {
+        self.deferred().kept_any.push(object);
     }
 
     /// Keeps `object` alive until the list is reset.

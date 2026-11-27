@@ -81,6 +81,17 @@ changes, so it is not a merge fault. See *Tried on an RTX 5070* below.
   `VICTORY_FFX_SCALE`, `VICTORY_UPSCALER`; each off without it; from avatarmanz, with pull
   request #53's picker and scale): a few places in the title's code changed at load, each
   compared byte for byte first and left alone if it differs.
+- **NVIDIA DLSS in place of the upscale stand-in** (`VICTORY_UPSCALE=dlss`, Series S; from
+  aleksesipenko/VIctory-RTX): the title's FidelityFX upscale is done by DLSS from its colour,
+  depth, motion vectors and jitter, instead of a plain stretch; if DLSS cannot run, the stretch.
+  NVIDIA's files are not in this repository: put `nvsdk_ngx_d.lib`
+  (`lib\Windows_x86_64d`) and `nvngx_dlss.dll` (`lib\Windows_x86_64el`) from
+  <https://github.com/NVIDIA/DLSS> (NVIDIA's licence) in `%LOCALAPPDATA%\VIctory-Fork
+vidia-dlss`
+  (or name the folder in `VICTORY_DLSS_SDK`); the launcher then builds with DLSS. Check the DLL's
+  NVIDIA signature (file properties, Digital Signatures). Switches: `VICTORY_DLSS_PRESET`
+  (`J`, `K`, `L`, `M`), `VICTORY_DLSS_QUALITY`, `VICTORY_DLSS_MV_JITTERED`, `VICTORY_DLSS_MV_SIGN`,
+  `VICTORY_DLSS_JITTER_SIGN`, `VICTORY_DLSS_SHARPNESS`.
 - **More logging** for upscales and controller input.
 - **Launcher script** (`scripts/nvidia/start.ps1`): builds this checkout, sets the options, keeps
   each run's log and shows crash reports. **`Collect logs.cmd`** zips the logs for sharing.
@@ -252,6 +263,7 @@ show where a frame's time goes:
 | RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | the same, with the voxel light (`VICTORY_SWAP`, now the default without ray tracing) | **No blocks or speckle in unlit places.** 6.3 fps (158 ms) in lighter views, 5.7 (176 ms) in busy ones, against 8.3 and 8.1: copying back 50-65 ms (20 MB a frame, from 10), and in busy views the card is waited for (65 ms) |
 | RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | voxel light, `VICTORY_SKIP_WC_BACK=1`, the stand-in without ghosts | **7.4 fps (135 ms) in lighter views**, 5.9 (170 ms) in busy ones; no blocks in unlit places, no ghosts when turning. The world still jumps back now and then in dense places (near the first house), never in open country |
 | RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | the suggested `MORE` above (no `LEVELS_ON_DEMAND`; async submit; the title's own upscaler), live textures, voxel light | **8.5 fps median in busy views (118 ms), 9-11 on the road**; the card not waited for; roads textured, a sharp picture, no ghosts or jumps, the sky flashing once or twice a session |
+| RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | the same with `VICTORY_UPSCALE=dlss` in place of `VICTORY_UPSCALER=6` | **9.6 fps median (8.7-10.0 most of the time) against 8.6 (7.6-9.6)**; feels smoother; DLSS 310.9.16, 1280x720 to 1920x1080 |
 
 With the shader fixes, the first start after an update rebuilds every pipeline while it plays
 (hundreds at first, 1.5-4 fps for a minute or two); the second start loads them from the cache.

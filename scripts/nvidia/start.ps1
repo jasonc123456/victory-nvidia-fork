@@ -107,7 +107,15 @@ $profile_ = if ($Release) { 'release' } else { 'diag' }
 $victory = Join-Path $targetDir "x86_64-pc-windows-msvc\$profile_\victory.exe"
 Write-Host "Building VIctory ($profile_) from $repo (the first build takes several minutes)..."
 $buildArgs = @('build', '--locked', '-p', 'victory', '--target', 'x86_64-pc-windows-msvc', '--target-dir', $targetDir)
-if ($Release) { $buildArgs += '--release' } else { $buildArgs += @('--profile', 'diag', '--features', 'diagnostics') }
+# NVIDIA DLSS (VICTORY_UPSCALE=dlss): built in when NVIDIA's files are found, in VICTORY_DLSS_SDK
+# or %LOCALAPPDATA%\VIctory-Fork\nvidia-dlss (nvsdk_ngx_d.lib and nvngx_dlss.dll from
+# github.com/NVIDIA/DLSS, lib\Windows_x86_64\x64 and \rel; NVIDIA's licence, not in this repository).
+$dlssDir = if ($env:VICTORY_DLSS_SDK) { $env:VICTORY_DLSS_SDK } else { Join-Path $home_ 'nvidia-dlss' }
+$dlss = (Test-Path (Join-Path $dlssDir 'nvsdk_ngx_d.lib')) -or (Test-Path (Join-Path $dlssDir 'lib\Windows_x86_64\x64\nvsdk_ngx_d.lib'))
+if ($dlss) { $env:VICTORY_DLSS_SDK = $dlssDir; Write-Host "DLSS:  built in (NVIDIA's files in $dlssDir); VICTORY_UPSCALE=dlss turns it on" }
+$features = @(); if (-not $Release) { $features += 'diagnostics' }; if ($dlss) { $features += 'dlss' }
+if ($Release) { $buildArgs += '--release' } else { $buildArgs += @('--profile', 'diag') }
+if ($features) { $buildArgs += @('--features', ($features -join ',')) }
 Push-Location $repo
 try {
     $ErrorActionPreference = 'Continue'
@@ -146,6 +154,10 @@ if ($RayTracing) { $set.VICTORY_BVH_BUILDER = '1'; $set.VICTORY_BVH_QUARANTINE =
 # -Settings 'VICTORY_SWAP=none' keeps the title's own.
 if (-not $RayTracing) { $set.VICTORY_SWAP = 'ScreenProbes_TraceRays_RayBinning_BVH:ScreenProbes_TraceRays_Voxels' }
 if ($SeparatePads) { $set.VICTORY_ONE_PAD = '0' }
+if ($dlss) {
+    $dll = @($dlssDir, (Join-Path $dlssDir 'lib\Windows_x86_64\rel')) | Where-Object { Test-Path (Join-Path $_ 'nvngx_dlss.dll') } | Select-Object -First 1
+    if ($dll) { $set.VICTORY_DLSS_DIR = $dll }
+}
 if ($InputTrace) { $set.VICTORY_LOG = 'info,victory_hle::modules::gameinput=trace' }
 if ($LowVram) { $set.VICTORY_TEXTURE_ROOM_PERCENT = '70'; $set.VICTORY_CARD_BUFFERS_MB = '256' }
 foreach ($pair in ($Settings -split '\s+' | Where-Object { $_ })) {
