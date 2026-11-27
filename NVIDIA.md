@@ -74,6 +74,13 @@ changes, so it is not a merge fault. See *Tried on an RTX 5070* below.
   after a turn the old view's light stayed in the history for seconds: a see-through ghost of the
   old view, and the world seemed to jump back a frame. The image is now copied before the raise
   and put back before the next frame's resolve, so the raise shows in its own frame only.
+- **Textures the title keeps rewriting, looked at every frame** (`VICTORY_LIVE_TEXTURES`, on by
+  default; `0` turns it off; avatarmanz pull request #390): a texture found changed after its
+  upload is fingerprinted whole (up to 4 MiB) every frame until it rests for 120 frames.
+- **Output size, render scale and upscaler** (`VICTORY_OUTPUT`, `VICTORY_RENDER_SCALE`,
+  `VICTORY_FFX_SCALE`, `VICTORY_UPSCALER`; each off without it; from avatarmanz, with pull
+  request #53's picker and scale): a few places in the title's code changed at load, each
+  compared byte for byte first and left alone if it differs.
 - **More logging** for upscales and controller input.
 - **Launcher script** (`scripts/nvidia/start.ps1`): builds this checkout, sets the options, keeps
   each run's log and shows crash reports. **`Collect logs.cmd`** zips the logs for sharing.
@@ -168,7 +175,7 @@ On every start, the launcher checks:
 
 Suggested `MORE` on an RTX 5070 12 GB (each measured, see *Results*):
 
-    set "MORE=VICTORY_UP_QUEUE=1 VICTORY_JOIN_BARRIERS=1 VICTORY_RECHECK_EVERY=30 VICTORY_TEXTURE_ROOM_PERCENT=95 VICTORY_CARD_BUFFERS_MIN_KB=64 VICTORY_LEVELS_ON_DEMAND=1 VICTORY_SKIP_WC_BACK=1"
+    set "MORE=VICTORY_UP_QUEUE=1 VICTORY_JOIN_BARRIERS=1 VICTORY_RECHECK_EVERY=30 VICTORY_TEXTURE_ROOM_PERCENT=95 VICTORY_CARD_BUFFERS_MIN_KB=64 VICTORY_SKIP_WC_BACK=1 VICTORY_ASYNC_SUBMIT=1 VICTORY_UPSCALER=6"
 
 - `VICTORY_UP_QUEUE=1 VICTORY_JOIN_BARRIERS=1`: about 7% faster together.
 - `VICTORY_RECHECK_EVERY=30`: textures the title changes late are caught (above); 30 caught
@@ -183,9 +190,21 @@ Suggested `MORE` on an RTX 5070 12 GB (each measured, see *Results*):
   card: 6.4 to 7.3 fps outside, the card no longer waited for, more draws kept, textures as
   before. The card's memory is then full, and about 0.8 GB of 32 GB RAM stays free. Rooms look
   the same with or without it: how dark they are follows the hour of the title's day (below).
+  **Leave `VICTORY_LEVELS_ON_DEMAND` out:** with it the roads lost their texture and lane lines
+  (black asphalt, in sun and shade), and the card was waited for again with the title's own
+  upscaler. `VICTORY_CARD_BUFFERS_MIN_KB=64` alone keeps the speed: without either, the card
+  waited about 200 ms a frame (3.4 fps).
 - `VICTORY_SKIP_WC_BACK=1`: with the voxel light on, 6.3 to 7.4 fps in lighter views and 5.7 to
   6.9 in busy ones (short runs, so rough figures), copy-back 50-65 ms to 31-39. No flashing with
   its two rules. An experiment: it assumes the title never reads that memory back.
+- `VICTORY_ASYNC_SUBMIT=1`: submissions are prepared by a thread of the layer's own while the
+  title's thread goes on (it was on only with `SAFE=0`). With `SAFE=1`: 7.2 to 8.1 fps in lighter
+  views and 5.9 to 7.2 in busy ones; no new faults.
+- `VICTORY_UPSCALER=6`: Series S uses the title's own temporal upscaler instead of FidelityFX,
+  which this layer can only stretch: a much sharper picture from the same 1280x720. The first
+  start after it builds its pipelines (slow); after that about the speed of the stretch.
+  `VICTORY_RENDER_SCALE=1.0` on Series S stops the title at its own check while it makes its
+  targets; use it on Series X only.
 
 Flags typed after the file's name in a terminal are added to the ones set in the file:
 
@@ -232,6 +251,7 @@ show where a frame's time goes:
 | RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | the same, the memory set to 3200 MHz | 8.3 fps median over a run (121 ms), 9-9.5 in lighter views; preparing about 20% shorter (90-103 ms). The frame is bound by the processor and memory |
 | RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | the same, with the voxel light (`VICTORY_SWAP`, now the default without ray tracing) | **No blocks or speckle in unlit places.** 6.3 fps (158 ms) in lighter views, 5.7 (176 ms) in busy ones, against 8.3 and 8.1: copying back 50-65 ms (20 MB a frame, from 10), and in busy views the card is waited for (65 ms) |
 | RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | voxel light, `VICTORY_SKIP_WC_BACK=1`, the stand-in without ghosts | **7.4 fps (135 ms) in lighter views**, 5.9 (170 ms) in busy ones; no blocks in unlit places, no ghosts when turning. The world still jumps back now and then in dense places (near the first house), never in open country |
+| RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | the suggested `MORE` above (no `LEVELS_ON_DEMAND`; async submit; the title's own upscaler), live textures, voxel light | **8.5 fps median in busy views (118 ms), 9-11 on the road**; the card not waited for; roads textured, a sharp picture, no ghosts or jumps, the sky flashing once or twice a session |
 
 With the shader fixes, the first start after an update rebuilds every pipeline while it plays
 (hundreds at first, 1.5-4 fps for a minute or two); the second start loads them from the cache.
@@ -294,11 +314,10 @@ made by the driver:
 - The voxel light costs about a quarter of the frame rate on its own: what its trace writes is
   copied back to title memory (about 10 MB more a frame). `VICTORY_SKIP_WC_BACK=1` wins most of
   that back.
-- In dense places the world, not the interface, still jumps back to an earlier frame now and
-  then. Most of these jumps were the stand-in's ghost (fixed, above); what is left is not the
-  texture rechecks, the upscale stand-in or the copy-back thread (each ruled out in a run).
-- The sky flashes between its colour and black at times; less often without
-  `VICTORY_RECHECK_EVERY`.
+- The sky still flashes black once or twice in a session. Most of these flashes, and the world
+  jumping back a frame near dense places, came from a small texture the title writes every frame
+  being shown frames late; `VICTORY_LIVE_TEXTURES` (on by default) looks at such textures every
+  frame.
 - Rooms are dark at night and at dusk with ray tracing off: only lamps light them then.
 - The welcome screen steps back and forth without `SAFE`.
 - Grainy speckle on hair, walls, floors and in the air, with ray tracing on or off (lighting
