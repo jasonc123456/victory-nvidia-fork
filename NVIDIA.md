@@ -45,7 +45,14 @@ changes, so it is not a merge fault. See *Tried on an RTX 5070* below.
 - **Textures looked at again** (`VICTORY_RECHECK_EVERY=<frames>`, off by default): a texture the
   layer had stopped watching after its first few looks is compared again every so many frames,
   and sent up again when the title has changed it. Stale or half-new textures (blocky patches,
-  stripes) are caught about four times as often with `120`, at no frame time measured.
+  stripes) are caught about four times as often with `120`, and twice as often again with `30`,
+  at no frame time measured.
+- **Program switches for looking into the picture** (all off by default):
+  `VICTORY_SHADER_NAMES=1` logs the name of each program of the title once, as it is created;
+  `VICTORY_PROGRAM_RUNS=1` logs each compute program's first run and, every 30 s, which ran and
+  how often; `VICTORY_LEAVE_OUT=<part>,...` drops the dispatches of compute programs whose name
+  holds a part (or whose hash is one). Both take a text instead of `1` to report only names that
+  hold it.
 - **More logging** for upscales and controller input.
 - **Launcher script** (`scripts/nvidia/start.ps1`): builds this checkout, sets the options, keeps
   each run's log and shows crash reports. **`Collect logs.cmd`** zips the logs for sharing.
@@ -140,10 +147,11 @@ On every start, the launcher checks:
 
 Suggested `MORE` on an RTX 5070 12 GB (each measured, see *Results*):
 
-    set "MORE=VICTORY_UP_QUEUE=1 VICTORY_JOIN_BARRIERS=1 VICTORY_RECHECK_EVERY=120 VICTORY_TEXTURE_ROOM_PERCENT=95 VICTORY_CARD_BUFFERS_MIN_KB=64 VICTORY_LEVELS_ON_DEMAND=1"
+    set "MORE=VICTORY_UP_QUEUE=1 VICTORY_JOIN_BARRIERS=1 VICTORY_RECHECK_EVERY=30 VICTORY_TEXTURE_ROOM_PERCENT=95 VICTORY_CARD_BUFFERS_MIN_KB=64 VICTORY_LEVELS_ON_DEMAND=1"
 
 - `VICTORY_UP_QUEUE=1 VICTORY_JOIN_BARRIERS=1`: about 7% faster together.
-- `VICTORY_RECHECK_EVERY=120`: textures the title changes late are caught (above).
+- `VICTORY_RECHECK_EVERY=30`: textures the title changes late are caught (above); 30 caught
+  twice as many as 120 at the same frame rate.
 - `VICTORY_TEXTURE_ROOM_PERCENT=95`: textures may fill 95% of the card's budget instead of 90%.
   On a 12 GB card, the passes that found no room for a texture fell from 19,341 to 181, and
   objects that were drawn black got their textures, at the same frame rate. Lower values (or
@@ -152,11 +160,8 @@ Suggested `MORE` on an RTX 5070 12 GB (each measured, see *Results*):
   codec-d/cool_fox): title buffers from 64 KiB up get a copy in the card's memory, so shaders
   stop reading them over PCIe, and textures take the card's memory level by level. On a 12 GB
   card: 6.4 to 7.3 fps outside, the card no longer waited for, more draws kept, textures as
-  before. The card's memory is then full, and about 0.8 GB of 32 GB RAM stays free.
-- Optional, for the picture, at no measured cost: `VICTORY_INDIRECT_REST=0` (an indirect record
-  that does not fit its list's budget no longer empties the records after it; refusals in the log
-  went from 11-18 lines a run to 1) and `VICTORY_AMBIENT_AIR=1.5` (less haze from the ambient
-  stand-in with ray tracing off). On an RTX 5070 the picture looked about the same with both.
+  before. The card's memory is then full, and about 0.8 GB of 32 GB RAM stays free. Rooms look
+  the same with or without it: how dark they are follows the hour of the title's day (below).
 
 Flags typed after the file's name in a terminal are added to the ones set in the file:
 
@@ -199,6 +204,7 @@ show where a frame's time goes:
 | RTX 5070 12 GB, i7-14700K, 32 GB             | ray tracing off, with `VICTORY_RECHECK_EVERY=120` and `VICTORY_TEXTURE_ROOM_PERCENT=95` | Same frame rate; stale textures caught about 4 times as often; textures left without room 181 times instead of 19,341, and black objects textured again |
 | RTX 5070 12 GB, i7-14700K, 32 GB             | the same, `RELEASE=1` instead of the diagnostics build (11 minutes outside) | Preparing 99 ms instead of 103-121, copying back 40 instead of 44-50: 10-15% less on the processor side. 6.4 fps median over the run, 8-9 fps more often; no new warnings |
 | RTX 5070 12 GB, i7-14700K, 32 GB             | release, with `VICTORY_CARD_BUFFERS_MIN_KB=64 VICTORY_LEVELS_ON_DEMAND=1` | **7.3 fps median outside, 138 ms** (from 6.4 and 155). The card is never waited for (0 ms, from 17); about 9,800 draws a frame, about 200 dropped (from 8,000 and 1,700). Textures look the same; the card's memory is full (11.5 of 12 GB, 7.8 GB shared) |
+| RTX 5070 12 GB, i7-14700K, 32 GB             | the same, `VICTORY_RECHECK_EVERY=30` instead of 120 | Stale textures caught about twice as fast (204 in 75 s against 208 in 170 s); 133 ms a frame at 6,000-8,000 draws against 138-147. Blocky patches on clothes in unlit places remain (they are not textures, see *Known faults*) |
 
 With the shader fixes, the first start after an update rebuilds every pipeline while it plays
 (hundreds at first, 1.5-4 fps for a minute or two); the second start loads them from the cache.
@@ -217,6 +223,10 @@ Each in the same place as the results above, against this tree:
 | Ray-tracing hit resolves and ray activation left out with ray tracing off (after codec-d/cool_fox) | 8.5-10 fps, but the colours break: purple grass and trees, near-black shade, sparkles. With ray tracing off these programs still write the light the rays fall back to; the speed was that work skipped |
 | A DirectStorage staging buffer of 256 MB instead of the title's 32 (after codec-d/cool_fox) | Slower: 6.5 fps against 7.8 at the same spot, preparing 132 ms instead of 103 and copying back 60 instead of 42 |
 | `SAFE=0` on its own (release, with the memory switches) | 6.9 fps against 7.3: preparing 108 ms instead of 117, but the card is waited for again (13 ms, up to 48) and 1 GB more memory is used (0.5 GB of RAM left). The welcome screen steps and textures look worse |
+| `VICTORY_INDIRECT_REST=0` with `VICTORY_AMBIENT_AIR=1.5` | Same frame rate. Rooms fully black at night with the air bound (the haze it takes away was the only fill light), and the faults on clothes unchanged |
+| `VICTORY_CARD_BUFFERS_MIN_KB=1024`, or the switch left out (16 MiB) | 1024: 5.7 fps (176 ms), the card waited for 53 ms a frame. Left out: 6.8 fps (147 ms), card 9 ms. 64 stays: 7.2-7.5 fps, card 2-3 ms |
+| `VICTORY_AMBIENT=constant:0.3` (one level of ambient light everywhere) | 5.8 fps (173 ms), the card waited for 43 ms; houses near black, water flashing white. The patches on clothes stay, so they do not come from the ambient stand-in |
+| The three busiest of the 17 variants of the title's ray-hit resolve left out (`VICTORY_LEAVE_OUT`, about 70% of their ~900 dispatches a frame) | No faster (147 ms against 132-145); colours outside fine, but the screen turns white for 10-20 s after walking indoors. These dispatches are cheap; the speed of the earlier row came from leaving out the ray activation |
 
 ### Shader pack on an RTX 5070 (32-lane waves)
 
@@ -246,7 +256,14 @@ made by the driver:
 ## Known faults
 
 - Green and red stripes, or a pixelated look, on some characters' arms and clothes: textures the
-  title changes after the layer stopped looking. `VICTORY_RECHECK_EVERY=120` catches them sooner.
+  title changes after the layer stopped looking. `VICTORY_RECHECK_EVERY=30` catches them sooner.
+- Black and white blocks and speckle on clothes, walls and furniture in unlit places, gone close to
+  a lamp. They are in the indirect light, not in textures. With ray tracing off the title still
+  runs the ray-traced variants of its light passes (screen probes, irradiance cache, ray-hit
+  resolves; `VICTORY_PROGRAM_RUNS=1`), whose rays all miss; it also has voxel and fallback
+  variants of them, made at load, that never run. What makes it pick one or the other is not
+  known yet.
+- Rooms are dark at night and at dusk with ray tracing off: only lamps light them then.
 - The welcome screen steps back and forth without `SAFE`.
 - Grainy speckle on hair, walls, floors and in the air, with ray tracing on or off (lighting
   noise), and bright stair-step blocks near windows.
