@@ -92,6 +92,9 @@ pub extern "system" fn XMemVirtualAlloc(
     protect: u32,
 ) -> *mut c_void {
     let (lowest, highest) = address_range(flags);
+    // The console protection the title asked for, write-combining bit and
+    // all (`victory_gpu::title_memory_reserved`).
+    let asked_protect = protect;
     let mut requirements = MEM_ADDRESS_REQUIREMENTS {
         LowestStartingAddress: lowest as *mut c_void,
         HighestEndingAddress: highest as *mut c_void,
@@ -169,6 +172,9 @@ pub extern "system" fn XMemVirtualAlloc(
         }
     }
     if base.is_null() {
+        // Write-combining reservations, for `VICTORY_SKIP_WC_BACK`.
+        #[cfg(windows)]
+        victory_gpu::title_memory_reserved(at as usize, size, asked_protect);
         tracing::debug!(
             size,
             kind = format_args!("{kind:#x}"),

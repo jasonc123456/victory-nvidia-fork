@@ -4362,6 +4362,7 @@ impl Host {
                         }
                         let bytes: u64 = ranges.iter().map(|&(a, b)| (b - a) as u64).sum();
                         crate::shadow::CARD_STATS[0].fetch_add(bytes, Ordering::Relaxed);
+                        crate::census::sent_up(shadow.span().0 as usize, ranges);
                         crate::shadow::CARD_STATS[1].fetch_add(ranges.len() as u64, Ordering::Relaxed);
                         #[cfg(feature = "diagnostics")]
                         traffic::moved(traffic::UP, shadow.span(), ranges.iter().copied());
@@ -4674,7 +4675,12 @@ impl Host {
                             continue;
                         }
                         let (lo, hi) = r.shadow.card_piece(&r.span, p);
-                        if lo < hi && !seen.contains(&(copy, lo, hi)) {
+                        // Write-combining memory stays on the card
+                        // (`VICTORY_SKIP_WC_BACK`, `crate::census`).
+                        if lo < hi
+                            && !seen.contains(&(copy, lo, hi))
+                            && !crate::census::skip_back(r.declared, (r.shadow.span().0 as usize + lo, r.shadow.span().0 as usize + hi))
+                        {
                             let key = (r.shadow.id(), r.shadow.span().0 as usize + lo, hi - lo);
                             if fetch.as_ref().is_some_and(|f| f.had.holds(behind, key)) {
                                 land::count(land::stat::HAD, 1);
@@ -5049,7 +5055,10 @@ impl Host {
                     continue;
                 }
                 let (lo, hi) = r.shadow.card_piece(&r.span, p);
-                if lo < hi && seen.insert((std::sync::Arc::as_ptr(&r.shadow) as usize, lo, hi)) {
+                if lo < hi
+                    && !crate::census::skip_back(r.declared, (r.shadow.span().0 as usize + lo, r.shadow.span().0 as usize + hi))
+                    && seen.insert((std::sync::Arc::as_ptr(&r.shadow) as usize, lo, hi))
+                {
                     pieces.push((i, lo, hi, total));
                     total += (hi - lo) as u64;
                 }

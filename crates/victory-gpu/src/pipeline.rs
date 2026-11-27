@@ -220,6 +220,46 @@ pub(crate) fn left_out(shaders: &[Arc<Shader>]) -> bool {
     hit.is_some()
 }
 
+/// Whether what a compute program stores into buffers stays in the host's
+/// copies, not copied back into title memory (`VICTORY_CARD_ONLY=<part>,...`;
+/// off by default): a program whose name holds a part (or whose hash is
+/// one). For passes whose results only the card reads again, such as the
+/// light probes of the voxel trace (`VICTORY_SWAP`), whose copy-back doubled
+/// what each frame brings back. Logged once a program.
+/// shortcut: the title's code never sees those bytes, and a page of such a
+/// buffer the title writes itself is sent up again whole, over what the
+/// card wrote in it.
+pub(crate) fn card_only(shaders: &[Arc<Shader>]) -> bool {
+    static PARTS: OnceLock<Vec<String>> = OnceLock::new();
+    let parts = PARTS.get_or_init(|| {
+        std::env::var("VICTORY_CARD_ONLY")
+            .unwrap_or_default()
+            .split(',')
+            .map(|p| p.trim().to_ascii_lowercase())
+            .filter(|p| p.len() >= 4)
+            .collect()
+    });
+    if parts.is_empty() {
+        return false;
+    }
+    let Some(shader) = shaders.iter().find(|s| s.stage == "compute") else {
+        return false;
+    };
+    let named = names(&shader.container);
+    let hit = parts.iter().find(|p| {
+        **p == shader.hash || named.iter().any(|n| n.to_ascii_lowercase().contains(p.as_str()))
+    });
+    if let Some(part) = hit {
+        tracing::info!(
+            hash = shader.hash.as_str(),
+            name = named.first().copied().unwrap_or(""),
+            part = part.as_str(),
+            "a program of the title keeps its buffer stores on the card (VICTORY_CARD_ONLY): not copied back"
+        );
+    }
+    hit.is_some()
+}
+
 /// The program a host compute pipeline is made with instead of the
 /// title's (`VICTORY_SWAP=<from>:<to>,...`; off by default): when the
 /// title's program's name holds `from`, the first container the title has

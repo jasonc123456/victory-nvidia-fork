@@ -1502,7 +1502,10 @@ impl State {
         }
         for stage in &p.stages {
             let t = stage.translated();
-            STORES.set(t.stores);
+            // A program whose buffer stores stay on the card
+            // (`VICTORY_CARD_ONLY`): its views are made as for one that
+            // does not store, so nothing of them is copied back.
+            STORES.set(t.stores && !p.card_only);
             if t.stores && crate::picked::on() && crate::picked::picks(&stage.shader, &t.picks) {
                 crate::picked::runs_in(list);
             }
@@ -1519,12 +1522,16 @@ impl State {
             // What the shader stores through root views and raw addresses is
             // copied back into title memory afterwards.
             let writes = (t.stores || !write_skip())
+                && !p.card_only
                 && !crate::pipeline::builder_quarantined(self.pipeline as This);
             // Title memory by address: what the shader finds it by.
             let memory = if t.host.root_srvs.contains(&victory_shader::emit::SLOT_MEMORY) {
                 // Only through a store by address: what it stores through
-                // views is declared with them.
-                let use_ = if crate::pipeline::is_builder(self.pipeline as This) || writes && t.stores_by_address {
+                // views is declared with them. (Kept on the card: it may
+                // still store, nothing comes back.)
+                let use_ = if crate::pipeline::is_builder(self.pipeline as This)
+                    || t.stores_by_address && (writes || p.card_only)
+                {
                     crate::memory::Use::Builds { back: writes }
                 } else {
                     crate::memory::Use::Reads

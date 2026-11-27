@@ -67,6 +67,8 @@ pub mod root;
 #[cfg(windows)]
 mod safecopy;
 #[cfg(windows)]
+mod census;
+#[cfg(windows)]
 mod sampler;
 #[cfg(windows)]
 pub mod shader_cache;
@@ -109,6 +111,8 @@ pub fn switched(switch: &str) -> Option<bool> {
 pub fn frame_phase() -> u32 {
     copystat::phase()
 }
+#[cfg(windows)]
+pub use census::title_memory_reserved;
 #[cfg(windows)]
 pub use inplace::{title_memory_freeing, title_memory_section, title_memory_section_gone, title_memory_view};
 #[cfg(windows)]
