@@ -154,6 +154,10 @@ if ($RayTracing) { $set.VICTORY_BVH_BUILDER = '1'; $set.VICTORY_BVH_QUARANTINE =
 # -Settings 'VICTORY_SWAP=none' keeps the title's own.
 if (-not $RayTracing) { $set.VICTORY_SWAP = 'ScreenProbes_TraceRays_RayBinning_BVH:ScreenProbes_TraceRays_Voxels' }
 if ($SeparatePads) { $set.VICTORY_ONE_PAD = '0' }
+# NVIDIA caps the view heap at 1,000,000 views (the title asks 1,245,184): with the fixed 2^18 slots
+# for the tables made each frame, busy places ran out and dropped draws (the sky or water gone for a
+# frame every few seconds near the first house). Half the heap for them: no flashes, the same speed.
+$set.VICTORY_DYNAMIC_SLOTS = '524288'
 if ($dlss) {
     $dll = @($dlssDir, (Join-Path $dlssDir 'lib\Windows_x86_64\rel')) | Where-Object { Test-Path (Join-Path $_ 'nvngx_dlss.dll') } | Select-Object -First 1
     if ($dll) { $set.VICTORY_DLSS_DIR = $dll }

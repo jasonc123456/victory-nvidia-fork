@@ -339,10 +339,15 @@ made by the driver:
 - The voxel light costs about a quarter of the frame rate on its own: what its trace writes is
   copied back to title memory (about 10 MB more a frame). `VICTORY_SKIP_WC_BACK=1` wins most of
   that back.
-- The sky still flashes black once or twice in a session. Most of these flashes, and the world
-  jumping back a frame near dense places, came from a small texture the title writes every frame
-  being shown frames late; `VICTORY_LIVE_TEXTURES` (on by default) looks at such textures every
-  frame.
+- The sky flashing black and the water vanishing for a frame near dense places: two causes, both
+  fixed. A small texture the title writes every frame was shown frames late
+  (`VICTORY_LIVE_TEXTURES`, on by default, looks at such textures every frame). And NVIDIA caps the
+  view heap at 1,000,000 views (the title asks 1,245,184), so the fixed 2^18 slots for the tables
+  made each frame ran out in busy places: draws were dropped, indirect ones (the sky, the water)
+  among them, a big flash every 1-4 s near the first house. `VICTORY_DYNAMIC_SLOTS=524288` (the
+  launcher's default; at most half the heap) gives them half the heap: big flashes 28 to 1 in a
+  run there, dropped indirect draws about 60 a frame to none, the same frame rate (from
+  T0nyyyyy/Nvidia-framegenmaybefixed-).
 - Rooms are dark at night and at dusk with ray tracing off: only lamps light them then.
 - The welcome screen steps back and forth without `SAFE`.
 - Grainy speckle on hair, walls, floors and in the air, with ray tracing on or off (lighting

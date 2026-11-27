@@ -1597,7 +1597,22 @@ fn dynamic_slots(count: u32, null: u32) -> u32 {
             .unwrap_or(DYNAMIC << 2)
     });
     if null < PORTABLE_VIEWS {
-        return DYNAMIC;
+        // A host heap capped below the title's count (NVIDIA: 1,000,000
+        // views, the title asks 1,245,184) ran these out in the title's
+        // busier places: tables refused, each a dropped draw or indirect
+        // draw, seen as the sky or water missing for a frame now and then.
+        // `VICTORY_DYNAMIC_SLOTS` takes more of them from the title's slots
+        // kept in place, at most half the heap (from
+        // T0nyyyyy/Nvidia-framegenmaybefixed-).
+        static CAPPED: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+        return *CAPPED.get_or_init(|| {
+            let asked = std::env::var("VICTORY_DYNAMIC_SLOTS").ok().and_then(|v| v.trim().parse::<u32>().ok());
+            let slots = asked.unwrap_or(DYNAMIC).clamp(DYNAMIC, (null / 2).max(DYNAMIC));
+            if slots != DYNAMIC {
+                tracing::info!(slots, title_in_place = null.saturating_sub(slots), "dynamic descriptor slots on a capped view heap (VICTORY_DYNAMIC_SLOTS)");
+            }
+            slots
+        });
     }
     null.saturating_sub(count).min(most).max(DYNAMIC)
 }
