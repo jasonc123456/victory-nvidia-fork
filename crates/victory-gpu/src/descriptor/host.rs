@@ -989,6 +989,10 @@ pub(crate) struct TextureQueue {
     /// Which slots are in `slots`, for those who only want one out
     /// ([`Queued`]).
     queued: std::sync::Arc<Queued>,
+    /// Slots found changed after their upload with nothing to tell of it:
+    /// textures the title rewrites in place all the time, looked at every
+    /// frame (`crate::draw`, `VICTORY_LIVE_TEXTURES`; avatarmanz PR 390).
+    live: std::collections::HashSet<u32>,
 }
 
 /// A bit for each slot of a heap's [`TextureQueue`], changed under its lock
@@ -1039,6 +1043,7 @@ impl TextureQueue {
         if was {
             self.queued.set(index, false);
         }
+        self.live.remove(&index);
         was
     }
 
@@ -1167,19 +1172,36 @@ impl TextureQueue {
     /// Slot `index` was uploaded whole from memory `at` (address, bytes)
     /// with fingerprint `print`: looked at again from frame `due`, for a
     /// title that fills a texture's memory after it wrote the view (the
-    /// `looks`-th such look; `uploaded` is the upload's frame).
+    /// `looks`-th such look; `uploaded` is the upload's frame; `live`: one
+    /// the title keeps rewriting, see [`TextureQueue::live`]).
     #[allow(clippy::too_many_arguments)]
-    fn recheck(&mut self, index: u32, write: u64, due: u64, at: (u64, u64), print: u64, looks: u8, uploaded: u64) {
+    fn recheck(
+        &mut self,
+        index: u32,
+        write: u64,
+        due: u64,
+        at: (u64, u64),
+        print: u64,
+        looks: u8,
+        uploaded: u64,
+        live: bool,
+    ) {
         if let Some(w) = self.same(index, write) {
             (w.due, w.looks, w.mapped) = (due, 1, 0);
             w.checked = (at.0, at.1, print, looks, uploaded);
+            if live {
+                self.live.insert(index);
+            } else {
+                self.live.remove(&index);
+            }
         }
     }
 
     /// What [`TextureQueue::recheck`] noted of slot `index`, if it is
-    /// waiting for such a look.
-    fn checked(&self, index: u32) -> Option<(u64, u64, u64, u8, u64)> {
-        self.slots.get(&index).map(|w| w.checked).filter(|c| c.2 != 0)
+    /// waiting for such a look, and whether it is live.
+    fn checked(&self, index: u32) -> Option<(u64, u64, u64, u8, u64, bool)> {
+        let (at, len, print, looks, uploaded) = self.slots.get(&index).map(|w| w.checked).filter(|c| c.2 != 0)?;
+        Some((at, len, print, looks, uploaded, self.live.contains(&index)))
     }
 
     /// The memory slot `index`'s texture lies in was mapped, unmapped or
@@ -1927,13 +1949,14 @@ impl HostHeap {
         print: u64,
         looks: u8,
         uploaded: u64,
+        live: bool,
     ) {
         let mut textures = self.textures.lock().unwrap_or_else(|e| e.into_inner());
-        textures.recheck(index, write, due, at, print, looks, uploaded);
+        textures.recheck(index, write, due, at, print, looks, uploaded, live);
     }
 
     /// See [`TextureQueue::checked`].
-    pub(crate) fn texture_slot_checked(&self, index: u32) -> Option<(u64, u64, u64, u8, u64)> {
+    pub(crate) fn texture_slot_checked(&self, index: u32) -> Option<(u64, u64, u64, u8, u64, bool)> {
         self.textures.lock().unwrap_or_else(|e| e.into_inner()).checked(index)
     }
 

@@ -1470,6 +1470,38 @@ pub(crate) fn staged_memory(resource: This) -> Option<(u64, u64)> {
     Some((at as u64, len as u64))
 }
 
+/// Largest texture [`fingerprint_for`] reads whole when its slot is live.
+const LIVE_WHOLE_BYTES: u64 = 4 << 20;
+
+/// [`fingerprint`], or for a live slot (one found changing after its upload)
+/// no larger than 4 MiB, one of all of its memory: the three 16 KiB windows
+/// miss a change between them (avatarmanz PR 390: a TV's video planes).
+pub(crate) fn fingerprint_for(at: u64, len: u64, live: bool) -> u64 {
+    if !live || len > LIVE_WHOLE_BYTES {
+        return fingerprint(at, len);
+    }
+    const CHUNK: usize = 64 << 10;
+    thread_local! {
+        static READ: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+    let len = len as usize;
+    let mut print = 0u128;
+    READ.with(|read| {
+        let mut read = read.borrow_mut();
+        read.resize(CHUNK, 0);
+        let mut from = 0;
+        while from < len {
+            let bytes = CHUNK.min(len - from);
+            read[..bytes].fill(0);
+            crate::host::copy_mapped(read.as_mut_ptr(), (at as usize + from) as *const u8, bytes, false);
+            print = print.rotate_left(37) ^ digest(&read[..bytes]).0;
+            from += bytes;
+        }
+    });
+    let first = (print as u64 ^ (print >> 64) as u64).to_le_bytes();
+    u64::from_le_bytes(first) | 1
+}
+
 /// A fingerprint of the title memory `[at, at + len)`, never 0: of all of
 /// it up to 48 KiB, else of 16 KiB at its start, its middle and its end
 /// (a texture streams in whole mips; the small ones lie first). Read
