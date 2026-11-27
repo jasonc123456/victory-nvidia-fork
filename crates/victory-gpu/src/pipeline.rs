@@ -151,6 +151,80 @@ fn say_names(stage: &'static str, hash: &str, bytes: &[u8]) {
     }
 }
 
+/// Compute programs counted by their runs (`VICTORY_PROGRAM_RUNS=1`, or a
+/// text that the names to report must hold, case not minded; off by
+/// default): to see which of the title's variants of a pass it runs.
+/// The program's name, its count, and the count at the last report.
+#[allow(clippy::type_complexity)]
+static RUNS: Mutex<Vec<(String, Arc<std::sync::atomic::AtomicU64>, u64)>> = Mutex::new(Vec::new());
+
+fn runs_filter() -> Option<&'static str> {
+    static FILTER: OnceLock<Option<String>> = OnceLock::new();
+    FILTER
+        .get_or_init(|| {
+            std::env::var("VICTORY_PROGRAM_RUNS")
+                .ok()
+                .filter(|v| !v.is_empty() && v != "0")
+                .map(|v| if v == "1" { String::new() } else { v.to_ascii_lowercase() })
+        })
+        .as_deref()
+}
+
+/// A counter for a new host compute pipeline's dispatches, when they are
+/// counted.
+pub(crate) fn runs_counter(shaders: &[Arc<Shader>]) -> Option<Arc<std::sync::atomic::AtomicU64>> {
+    runs_filter()?;
+    let shader = shaders.iter().find(|s| s.stage == "compute")?;
+    let name = names(&shader.container)
+        .into_iter()
+        .find(|n| n.starts_with("CS_"))
+        .map_or_else(|| format!("compute {}", shader.hash), str::to_owned);
+    let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    RUNS.lock().unwrap_or_else(|e| e.into_inner()).push((name, counter.clone(), 0));
+    Some(counter)
+}
+
+/// A dispatch of a counted program: its first run is logged.
+pub(crate) fn note_run(counter: &std::sync::atomic::AtomicU64) {
+    if counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+        let runs = RUNS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((name, ..)) = runs.iter().find(|(_, c, _)| std::ptr::eq(&**c, counter)) {
+            tracing::info!(name = name.as_str(), "a program of the title runs for the first time");
+        }
+    }
+}
+
+/// The counted programs that ran since the last report, most runs first,
+/// summed by name (a program can have several pipelines); called with the
+/// frame lines, it reports every 30 s at most.
+pub(crate) fn report_runs() {
+    let Some(filter) = runs_filter() else {
+        return;
+    };
+    static LAST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    {
+        let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+        let now = std::time::Instant::now();
+        if last.is_some_and(|t| now.duration_since(t).as_secs() < 30) {
+            return;
+        }
+        *last = Some(now);
+    }
+    let mut by_name: HashMap<String, u64> = HashMap::new();
+    for (name, counter, seen) in RUNS.lock().unwrap_or_else(|e| e.into_inner()).iter_mut() {
+        let now = counter.load(std::sync::atomic::Ordering::Relaxed);
+        let new = now - *seen;
+        *seen = now;
+        if new > 0 && (filter.is_empty() || name.to_ascii_lowercase().contains(filter)) {
+            *by_name.entry(name.clone()).or_default() += new;
+        }
+    }
+    let mut ran: Vec<(String, u64)> = by_name.into_iter().collect();
+    ran.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let list = ran.iter().map(|(n, c)| format!("{n} {c}")).collect::<Vec<_>>().join(", ");
+    tracing::info!(programs = ran.len(), "programs of the title run since the last report: {list}");
+}
+
 /// The shared container for `bytes`.
 fn shader(stage: &'static str, bytes: &[u8]) -> Arc<Shader> {
     let full = blake3::hash(bytes);

@@ -398,6 +398,9 @@ pub(crate) struct HostPipeline {
     /// listing (empty for compute).
     #[cfg_attr(not(feature = "diagnostics"), allow(dead_code))]
     pub(crate) state: String,
+    /// Its dispatches since the start, for `VICTORY_PROGRAM_RUNS`
+    /// (`crate::pipeline::runs_counter`); none when that is off.
+    pub(crate) runs: Option<Arc<std::sync::atomic::AtomicU64>>,
 }
 
 /// Logs a pipeline that gets no host pipeline, once per reason.
@@ -643,6 +646,7 @@ impl HostPipeline {
                 inputs: Vec::new(),
                 rects: false,
                 state: String::new(),
+                runs: crate::pipeline::runs_counter(shaders),
             });
         }
         let Some(g) = g else {
@@ -708,6 +712,7 @@ impl HostPipeline {
                 inputs: Vec::new(),
                 rects: false,
                 state: String::new(),
+                runs: None,
             });
         }
 
@@ -823,6 +828,7 @@ impl HostPipeline {
             slots: g.slots(),
             inputs: g.elements(),
             rects: rect_gs.is_some(),
+            runs: None,
             state: {
                 let (d, r, b) = (&g.depth, &g.rasterizer, &g.blend.RenderTarget[0]);
                 let face = |f: &D3D12_DEPTH_STENCILOP_DESC| {

@@ -2660,6 +2660,9 @@ impl State {
             once!("a dispatch with a graphics pipeline");
             return;
         }
+        if let Some(runs) = &p.runs {
+            crate::pipeline::note_run(runs);
+        }
         if !self.bind(list, p, true) {
             DROPPED.fetch_add(1, Ordering::Relaxed);
             // A stage of the structure builder that cannot be bound is a
@@ -3778,6 +3781,10 @@ impl State {
                 p.compute, p.mesh, self.topology
             ));
             return false;
+        }
+        // An indirect dispatch counts as one run, whatever the card's count.
+        if let Some(runs) = &p.runs {
+            crate::pipeline::note_run(runs);
         }
         let len = u64::from(stride) * u64::from(max.max(1));
         let Some(args) = crate::shadow::find_any(arguments, len) else {
