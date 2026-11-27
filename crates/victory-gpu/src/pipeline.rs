@@ -100,6 +100,57 @@ pub(crate) fn kept() -> [u64; 7] {
     ]
 }
 
+/// The program names a container holds (`CS_Name`, `PS_Name`, ...): runs of
+/// letters, digits and `_` that start with a stage's two letters and `_`,
+/// not inside a longer word.
+fn names(bytes: &[u8]) -> Vec<&str> {
+    const STAGES: [&[u8; 3]; 8] = [b"CS_", b"PS_", b"VS_", b"MS_", b"AS_", b"GS_", b"HS_", b"DS_"];
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut found: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while i + 3 <= bytes.len() {
+        if STAGES.iter().any(|s| bytes[i..i + 3] == s[..]) && (i == 0 || !word(bytes[i - 1])) {
+            let end = bytes[i..].iter().position(|&b| !word(b)).map_or(bytes.len(), |n| i + n);
+            if end - i >= 6
+                && let Ok(name) = std::str::from_utf8(&bytes[i..end])
+                && !found.contains(&name)
+            {
+                found.push(name);
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    found
+}
+
+/// Each new container's program names, once a name
+/// (`VICTORY_SHADER_NAMES=1`; off by default): to find which of the title's
+/// programs write a picture's fault. With `VICTORY_SHADER_NAMES=<text>`,
+/// only names that hold that text (case not minded).
+fn say_names(stage: &'static str, hash: &str, bytes: &[u8]) {
+    static FILTER: OnceLock<Option<String>> = OnceLock::new();
+    let Some(filter) = FILTER.get_or_init(|| {
+        std::env::var("VICTORY_SHADER_NAMES")
+            .ok()
+            .filter(|v| !v.is_empty() && v != "0")
+            .map(|v| if v == "1" { String::new() } else { v.to_ascii_lowercase() })
+    }) else {
+        return;
+    };
+    static SAID: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+    for name in names(bytes) {
+        if !filter.is_empty() && !name.to_ascii_lowercase().contains(filter.as_str()) {
+            continue;
+        }
+        let mut said = SAID.lock().unwrap_or_else(|e| e.into_inner());
+        if said.get_or_insert_with(Default::default).insert(name.to_owned()) {
+            tracing::info!(stage, hash, name, "a program of the title");
+        }
+    }
+}
+
 /// The shared container for `bytes`.
 fn shader(stage: &'static str, bytes: &[u8]) -> Arc<Shader> {
     let full = blake3::hash(bytes);
@@ -110,6 +161,7 @@ fn shader(stage: &'static str, bytes: &[u8]) -> Arc<Shader> {
         .or_insert_with(|| {
             KEPT[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             KEPT[1].fetch_add(bytes.len() as u64, std::sync::atomic::Ordering::Relaxed);
+            say_names(stage, &full.to_hex()[..16], bytes);
             Arc::new(Shader {
                 stage,
                 hash: full.to_hex()[..16].to_owned(),
@@ -790,6 +842,12 @@ pub fn save_pipeline_cache() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn names_are_whole_words_once() {
+        let bytes = b"\0CS_Resolve_a1\0xCS_Not\0PS_Lit CS_Resolve_a1 CS_ab\0";
+        assert_eq!(super::names(bytes), ["CS_Resolve_a1", "PS_Lit"]);
+    }
+
     #[cfg(all(windows, feature = "diagnostics"))]
     #[test]
     fn skip_hashes_accepts_full_hashes_only() {
