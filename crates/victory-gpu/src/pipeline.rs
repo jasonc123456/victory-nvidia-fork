@@ -184,6 +184,42 @@ pub(crate) fn runs_counter(shaders: &[Arc<Shader>]) -> Option<Arc<std::sync::ato
     Some(counter)
 }
 
+/// Whether a new host compute pipeline's dispatches are dropped
+/// (`VICTORY_LEAVE_OUT=<part>,<part>,...`; off by default): its program's
+/// name holds one of the parts (case not minded), such as a variant's tag
+/// `ae7b7f3c`, or the part is its hash. To find which of the title's
+/// variants of a pass carry what is seen; logged once a program.
+pub(crate) fn left_out(shaders: &[Arc<Shader>]) -> bool {
+    static PARTS: OnceLock<Vec<String>> = OnceLock::new();
+    let parts = PARTS.get_or_init(|| {
+        std::env::var("VICTORY_LEAVE_OUT")
+            .unwrap_or_default()
+            .split(',')
+            .map(|p| p.trim().to_ascii_lowercase())
+            .filter(|p| p.len() >= 4)
+            .collect()
+    });
+    if parts.is_empty() {
+        return false;
+    }
+    let Some(shader) = shaders.iter().find(|s| s.stage == "compute") else {
+        return false;
+    };
+    let named = names(&shader.container);
+    let hit = parts.iter().find(|p| {
+        **p == shader.hash || named.iter().any(|n| n.to_ascii_lowercase().contains(p.as_str()))
+    });
+    if let Some(part) = hit {
+        tracing::info!(
+            hash = shader.hash.as_str(),
+            name = named.first().copied().unwrap_or(""),
+            part = part.as_str(),
+            "a program of the title left out (VICTORY_LEAVE_OUT): its dispatches are dropped"
+        );
+    }
+    hit.is_some()
+}
+
 /// A dispatch of a counted program: its first run is logged.
 pub(crate) fn note_run(counter: &std::sync::atomic::AtomicU64) {
     if counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {

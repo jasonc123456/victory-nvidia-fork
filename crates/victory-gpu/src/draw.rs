@@ -2663,6 +2663,10 @@ impl State {
         if let Some(runs) = &p.runs {
             crate::pipeline::note_run(runs);
         }
+        if p.left_out {
+            DROPPED.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
         if !self.bind(list, p, true) {
             DROPPED.fetch_add(1, Ordering::Relaxed);
             // A stage of the structure builder that cannot be bound is a
@@ -3786,7 +3790,10 @@ impl State {
         if let Some(runs) = &p.runs {
             crate::pipeline::note_run(runs);
         }
-        let len = u64::from(stride) * u64::from(max.max(1));
+        if p.left_out {
+            return false;
+        }
+        let len =u64::from(stride) * u64::from(max.max(1));
         let Some(args) = crate::shadow::find_any(arguments, len) else {
             why("arguments outside title buffers");
             return false;

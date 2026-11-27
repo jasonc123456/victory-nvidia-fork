@@ -401,6 +401,8 @@ pub(crate) struct HostPipeline {
     /// Its dispatches since the start, for `VICTORY_PROGRAM_RUNS`
     /// (`crate::pipeline::runs_counter`); none when that is off.
     pub(crate) runs: Option<Arc<std::sync::atomic::AtomicU64>>,
+    /// Its dispatches are dropped (`VICTORY_LEAVE_OUT`, `crate::pipeline::left_out`).
+    pub(crate) left_out: bool,
 }
 
 /// Logs a pipeline that gets no host pipeline, once per reason.
@@ -647,6 +649,7 @@ impl HostPipeline {
                 rects: false,
                 state: String::new(),
                 runs: crate::pipeline::runs_counter(shaders),
+                left_out: crate::pipeline::left_out(shaders),
             });
         }
         let Some(g) = g else {
@@ -713,6 +716,7 @@ impl HostPipeline {
                 rects: false,
                 state: String::new(),
                 runs: None,
+                left_out: false,
             });
         }
 
@@ -829,6 +833,7 @@ impl HostPipeline {
             inputs: g.elements(),
             rects: rect_gs.is_some(),
             runs: None,
+            left_out: false,
             state: {
                 let (d, r, b) = (&g.depth, &g.rasterizer, &g.blend.RenderTarget[0]);
                 let face = |f: &D3D12_DEPTH_STENCILOP_DESC| {
