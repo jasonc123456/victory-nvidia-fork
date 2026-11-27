@@ -53,6 +53,13 @@ changes, so it is not a merge fault. See *Tried on an RTX 5070* below.
   how often; `VICTORY_LEAVE_OUT=<part>,...` drops the dispatches of compute programs whose name
   holds a part (or whose hash is one). Both take a text instead of `1` to report only names that
   hold it.
+- **Voxel light with ray tracing off** (`VICTORY_SWAP=<from>:<to>,...`; the launcher sets it when
+  `RAYTRACING=0`): with ray tracing off the title still traces its screen probes against the
+  ray-tracing structure, and those rays all miss, leaving blocks and speckle in every unlit place.
+  The switch binds the title's own voxel trace of that pass in its place (the first of its
+  programs whose name holds `to`, with the title's resources and dispatch sizes). The blocks are
+  gone; it costs about a quarter of the frame rate (see *Results*). `-Settings
+  'VICTORY_SWAP=none'`, or `MORE=VICTORY_SWAP=none`, keeps the title's own.
 - **More logging** for upscales and controller input.
 - **Launcher script** (`scripts/nvidia/start.ps1`): builds this checkout, sets the options, keeps
   each run's log and shows crash reports. **`Collect logs.cmd`** zips the logs for sharing.
@@ -205,6 +212,8 @@ show where a frame's time goes:
 | RTX 5070 12 GB, i7-14700K, 32 GB             | the same, `RELEASE=1` instead of the diagnostics build (11 minutes outside) | Preparing 99 ms instead of 103-121, copying back 40 instead of 44-50: 10-15% less on the processor side. 6.4 fps median over the run, 8-9 fps more often; no new warnings |
 | RTX 5070 12 GB, i7-14700K, 32 GB             | release, with `VICTORY_CARD_BUFFERS_MIN_KB=64 VICTORY_LEVELS_ON_DEMAND=1` | **7.3 fps median outside, 138 ms** (from 6.4 and 155). The card is never waited for (0 ms, from 17); about 9,800 draws a frame, about 200 dropped (from 8,000 and 1,700). Textures look the same; the card's memory is full (11.5 of 12 GB, 7.8 GB shared) |
 | RTX 5070 12 GB, i7-14700K, 32 GB             | the same, `VICTORY_RECHECK_EVERY=30` instead of 120 | Stale textures caught about twice as fast (204 in 75 s against 208 in 170 s); 133 ms a frame at 6,000-8,000 draws against 138-147. Blocky patches on clothes in unlit places remain (they are not textures, see *Known faults*) |
+| RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | the same, the memory set to 3200 MHz | 8.3 fps median over a run (121 ms), 9-9.5 in lighter views; preparing about 20% shorter (90-103 ms). The frame is bound by the processor and memory |
+| RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | the same, with the voxel light (`VICTORY_SWAP`, now the default without ray tracing) | **No blocks or speckle in unlit places.** 6.3 fps (158 ms) in lighter views, 5.7 (176 ms) in busy ones, against 8.3 and 8.1: copying back 50-65 ms (20 MB a frame, from 10), and in busy views the card is waited for (65 ms) |
 
 With the shader fixes, the first start after an update rebuilds every pipeline while it plays
 (hundreds at first, 1.5-4 fps for a minute or two); the second start loads them from the cache.
@@ -257,12 +266,18 @@ made by the driver:
 
 - Green and red stripes, or a pixelated look, on some characters' arms and clothes: textures the
   title changes after the layer stopped looking. `VICTORY_RECHECK_EVERY=30` catches them sooner.
-- Black and white blocks and speckle on clothes, walls and furniture in unlit places, gone close to
-  a lamp. They are in the indirect light, not in textures. With ray tracing off the title still
-  runs the ray-traced variants of its light passes (screen probes, irradiance cache, ray-hit
-  resolves; `VICTORY_PROGRAM_RUNS=1`), whose rays all miss; it also has voxel and fallback
-  variants of them, made at load, that never run. What makes it pick one or the other is not
-  known yet.
+- Without the voxel light (`VICTORY_SWAP=none`, or with ray tracing on before its structure is
+  built): black and white blocks and speckle on clothes, walls and furniture in unlit places, gone
+  close to a lamp. They are in the indirect light, not in textures. With ray tracing off the title
+  still runs the ray-traced variants of its light passes (screen probes, irradiance cache, ray-hit
+  resolves; `VICTORY_PROGRAM_RUNS=1`), whose rays all miss; its voxel and fallback variants, made
+  at load, never run on their own. What makes it pick one or the other is not known yet; the
+  voxel light swaps the screen-probe trace, which carries the blocks.
+- The voxel light costs about a quarter of the frame rate: what its trace writes is copied back
+  to title memory (about 10 MB more a frame) though the processor may never read it.
+- The world, not the interface, sometimes jumps back to an earlier frame for a moment. The
+  interface layer is current, so the world image holds older contents when it is shown. Under
+  study; one suspect is a texture recheck sending up title memory over an image the card wrote.
 - Rooms are dark at night and at dusk with ray tracing off: only lamps light them then.
 - The welcome screen steps back and forth without `SAFE`.
 - Grainy speckle on hair, walls, floors and in the air, with ray tracing on or off (lighting

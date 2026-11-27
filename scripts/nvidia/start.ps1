@@ -140,6 +140,11 @@ if ($Safe) {
 # (The structure builder's three programs that need the host wave's own first lane get it by
 # default, VICTORY_FIRSTLANE_OWN_ONLY; VICTORY_FIRSTLANE_OWN=1 would give it to every program.)
 if ($RayTracing) { $set.VICTORY_BVH_BUILDER = '1'; $set.VICTORY_BVH_QUARANTINE = '0' }
+# Without ray tracing the title still traces its screen probes against the ray-tracing structure,
+# whose rays all miss: blocks and speckle in every unlit place. Its own voxel trace of the same pass
+# lights them cleanly, at a cost (about 8.2 -> 6 fps on an RTX 5070 with an i7-14700K).
+# -Settings 'VICTORY_SWAP=none' keeps the title's own.
+if (-not $RayTracing) { $set.VICTORY_SWAP = 'ScreenProbes_TraceRays_RayBinning_BVH:ScreenProbes_TraceRays_Voxels' }
 if ($SeparatePads) { $set.VICTORY_ONE_PAD = '0' }
 if ($InputTrace) { $set.VICTORY_LOG = 'info,victory_hle::modules::gameinput=trace' }
 if ($LowVram) { $set.VICTORY_TEXTURE_ROOM_PERCENT = '70'; $set.VICTORY_CARD_BUFFERS_MB = '256' }
