@@ -420,6 +420,8 @@ impl HostPipeline {
     /// A host pipeline for vertex and pixel shaders with the graphics
     /// state `g`, or for one compute shader.
     pub(crate) fn new(shaders: &[Arc<Shader>], g: Option<&GraphicsState>) -> Option<HostPipeline> {
+        let swapped = if g.is_none() { crate::pipeline::swapped(shaders) } else { None };
+        let shaders: &[Arc<Shader>] = swapped.as_deref().unwrap_or(shaders);
         // For the report when the host device is removed: what this thread
         // has in the library from here on.
         super::library::label(format!("{shaders:?}"));

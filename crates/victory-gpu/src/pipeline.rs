@@ -220,6 +220,73 @@ pub(crate) fn left_out(shaders: &[Arc<Shader>]) -> bool {
     hit.is_some()
 }
 
+/// The program a host compute pipeline is made with instead of the
+/// title's (`VICTORY_SWAP=<from>:<to>,...`; off by default): when the
+/// title's program's name holds `from`, the first container the title has
+/// made whose program name holds `to` (case not minded) is translated and
+/// bound in its place, with the title's resources and dispatch sizes. To try
+/// the title's own variants of a pass (`..._BVH_...` against `..._Voxels`)
+/// without its knowing; logged once a program. The pipeline library keys on
+/// the translated code, so what is made here is never handed to a run
+/// without the switch.
+pub(crate) fn swapped(shaders: &[Arc<Shader>]) -> Option<Vec<Arc<Shader>>> {
+    static PAIRS: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    let pairs = PAIRS.get_or_init(|| {
+        std::env::var("VICTORY_SWAP")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|p| p.split_once(':'))
+            .map(|(a, b)| (a.trim().to_ascii_lowercase(), b.trim().to_ascii_lowercase()))
+            .filter(|(a, b)| a.len() >= 4 && b.len() >= 4)
+            .collect()
+    });
+    if pairs.is_empty() {
+        return None;
+    }
+    let [cs] = shaders else {
+        return None;
+    };
+    if cs.stage != "compute" {
+        return None;
+    }
+    let lower: Vec<String> = names(&cs.container).iter().map(|n| n.to_ascii_lowercase()).collect();
+    let (from, to) = pairs.iter().find(|(from, _)| lower.iter().any(|n| n.contains(from.as_str())))?;
+    let found = {
+        let all = SHADERS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut candidates: Vec<&Arc<Shader>> = all
+            .as_ref()?
+            .values()
+            .filter(|s| {
+                s.stage == "compute"
+                    && names(&s.container).iter().any(|n| n.to_ascii_lowercase().contains(to.as_str()))
+            })
+            .collect();
+        // The same one every run: the lowest hash.
+        candidates.sort_by(|a, b| a.hash.cmp(&b.hash));
+        candidates.first().map(|s| (*s).clone())
+    };
+    match found {
+        Some(other) => {
+            tracing::info!(
+                from = lower.first().map_or("", String::as_str),
+                from_hash = cs.hash.as_str(),
+                to = names(&other.container).first().copied().unwrap_or(""),
+                to_hash = other.hash.as_str(),
+                "a program of the title swapped for another of its own (VICTORY_SWAP)"
+            );
+            Some(vec![other])
+        }
+        None => {
+            tracing::warn!(
+                from = from.as_str(),
+                to = to.as_str(),
+                "VICTORY_SWAP: the title has made no program by that name yet; its own is kept"
+            );
+            None
+        }
+    }
+}
+
 /// A dispatch of a counted program: its first run is logged.
 pub(crate) fn note_run(counter: &std::sync::atomic::AtomicU64) {
     if counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
