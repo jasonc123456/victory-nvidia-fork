@@ -4,6 +4,25 @@
 > collector. See [NVIDIA.md](NVIDIA.md) for the changes, the results on NVIDIA cards, and how to
 > make your own start file.
 >
+> **Latest (2026-11-27), on an RTX 5070 12 GB with an i7-14700K and 32 GB of DDR4-3200, Series
+> S mode, ray tracing off:**
+>
+> - **NVIDIA DLSS** does the title's upscale (`VICTORY_UPSCALE=dlss`, 1280x720 to 1920x1080, from
+>   aleksesipenko/VIctory-RTX): a sharper picture, 9.6 fps median against 8.6 with the title's own
+>   upscaler.
+> - **NVIDIA DLSS Frame Generation** (`VICTORY_FRAME_GEN=2`, `3` or `4`, through NVIDIA
+>   Streamline with Reflex, from T0nyyyyy/Nvidia-framegenmaybefixed-): at 3x the title makes
+>   7.4-8 frames a second in busy places and about 22 reach the screen. Motion looks smooth; the
+>   controls still answer at the title's own rate. RTX 40 or newer (2x), RTX 50 for 3x and 4x.
+> - **No more sky and water flashes near dense places:** NVIDIA caps the view heap at 1,000,000
+>   views (the title asks 1,245,184), and the slots for the tables made each frame ran out, so
+>   draws were dropped. The launcher now gives them half the heap (`VICTORY_DYNAMIC_SLOTS=524288`):
+>   big flashes 28 to 1 in a run near the first house, at the same frame rate.
+>
+> NVIDIA's DLSS and Streamline files are not in this repository: [NVIDIA.md](NVIDIA.md) says
+> where to get them and where to put them. The frame is still bound by the processor side
+> (preparing about 100 ms, copying back 35-45 ms a frame), not by the card.
+>
 > **On NVIDIA (2026-11-26):** about 7 fps in the world on an RTX 5070 12 GB (ray tracing, Series
 > S mode), up from 4.5-5.7 before this fork took in upstream's latest processor-side work. The
 > frame is bound by the processor side's preparing (130-160 ms a frame before that), not by the
@@ -22,7 +41,8 @@
 > **Later still:** the release build (`RELEASE=1`) prepares 10-15% less than the diagnostics
 > build. With `VICTORY_CARD_BUFFERS_MIN_KB=64 VICTORY_LEVELS_ON_DEMAND=1` (from codec-d/cool_fox's
 > launcher) an RTX 5070 runs about 7.3 fps outside (median), up from 6.4, and the card is no longer
-> waited for. `SAFE=0` stays slower on 32 GB of RAM. Everything below this box is upstream's own
+> waited for (`VICTORY_LEVELS_ON_DEMAND` was later left out: it left roads without their
+> texture). `SAFE=0` stays slower on 32 GB of RAM. Everything below this box is upstream's own
 > description of the RX 7900 XTX fork.
 
 A fork of [VIctory](https://github.com/Marvisak/VIctory), a compatibility layer
@@ -130,6 +150,11 @@ commits taken from elsewhere name the commit and its author.
   every view of a page (with Spexivus, joroyt and tightfall), and Joshua Odom's
   reads into title memory.
 - **Geckomacabre** and **cxy0072019-sketch**: the texture read-back.
+- **[aleksesipenko/VIctory-RTX](https://github.com/aleksesipenko/VIctory-RTX)**:
+  NVIDIA DLSS in place of the title's upscale.
+- **[T0nyyyyy/Nvidia-framegenmaybefixed-](https://github.com/T0nyyyyy/Nvidia-framegenmaybefixed-)**:
+  DLSS Frame Generation through NVIDIA Streamline, and the dynamic descriptor slots on
+  NVIDIA's capped view heap.
 - **[XCL](https://github.com/ivall/xcl)** (GPL-2.0-only) was read for how the same
   title behaves under another layer; no code of it is here.
 - This fork's changes were made with [Claude Code](https://claude.com/claude-code).
