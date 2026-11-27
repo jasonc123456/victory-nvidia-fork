@@ -8584,6 +8584,17 @@ fn swap_format(format: DXGI_FORMAT) -> Option<DXGI_FORMAT> {
 
 const BUFFERS: u32 = 2;
 
+/// The swap chain's buffers: [`BUFFERS`], or with frame generation running
+/// `VICTORY_FG_BUFFERS` (2 to 8; 3 let the generated frames waiting to be shown
+/// hold up the next real one less: 28 to 10 ms of waiting for the card at 3x).
+fn buffers() -> u32 {
+    if crate::fg::active() {
+        std::env::var("VICTORY_FG_BUFFERS").ok().and_then(|v| v.trim().parse().ok()).map_or(BUFFERS, |n: u32| n.clamp(2, 8))
+    } else {
+        BUFFERS
+    }
+}
+
 struct Presenter {
     swap_chain: IDXGISwapChain3,
     width: u32,
@@ -8947,7 +8958,13 @@ impl Meter {
             self.caption = Some(buffer);
         }
         let Some(caption) = &self.caption else { return };
-        let text = format!(" | VIctory {fps:.0} fps {ms:.1} ms/frame {draws:.0} draws/frame");
+        // With frame generation, the frames shown too.
+        let shown = crate::fg::shown_per_frame();
+        let text = if shown > 1 {
+            format!(" | VIctory {fps:.0} fps (frame gen {:.0} fps) {ms:.1} ms/frame {draws:.0} draws/frame", fps * f64::from(shown))
+        } else {
+            format!(" | VIctory {fps:.0} fps {ms:.1} ms/frame {draws:.0} draws/frame")
+        };
         let mut text: Vec<u16> = caption.iter().copied().chain(text.encode_utf16()).collect();
         text.push(0);
         // Setting the text waits for the window's thread (a title thread,
@@ -9013,7 +9030,7 @@ impl Host {
             // SAFETY: no back buffer is held; every submission was waited for.
             let resized = unsafe {
                 p.swap_chain
-                    .ResizeBuffers(BUFFERS, width, height, format, DXGI_SWAP_CHAIN_FLAG(0))
+                    .ResizeBuffers(buffers(), width, height, format, DXGI_SWAP_CHAIN_FLAG(0))
             };
             match resized {
                 Ok(()) => {
@@ -9141,7 +9158,9 @@ impl Host {
             #[cfg(feature = "diagnostics")]
             crate::replay::record::present(texture, state);
             let mut showing = crate::timeline::span("the host's Present");
+            crate::fg::present_start();
             let _ = p.swap_chain.Present(0, DXGI_PRESENT(0));
+            crate::fg::present_end();
             showing.next("the frame meter");
             #[cfg(feature = "diagnostics")]
             p.panel.frame(p.meter.line_due());
@@ -9168,6 +9187,9 @@ impl Host {
         // SAFETY: plain object creation for our window.
         unsafe {
             let factory: IDXGIFactory2 = CreateDXGIFactory2(DXGI_CREATE_FACTORY_FLAGS(0))?;
+            // With `VICTORY_FRAME_GEN`, Streamline's proxy factory (`crate::fg`),
+            // whose swap chain generates frames at `Present`.
+            let factory = crate::fg::start(&self.device, factory);
             let desc = DXGI_SWAP_CHAIN_DESC1 {
                 Width: width,
                 Height: height,
@@ -9177,7 +9199,7 @@ impl Host {
                     Quality: 0,
                 },
                 BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
-                BufferCount: BUFFERS,
+                BufferCount: buffers(),
                 SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
                 ..Default::default()
             };

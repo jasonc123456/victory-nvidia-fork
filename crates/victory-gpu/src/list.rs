@@ -870,6 +870,8 @@ pub struct Upscale {
     pub pre_exposure: f32,
     pub near: f32,
     pub far: f32,
+    /// The vertical field of view in radians (`cameraFovAngleVertical`); 0: not given.
+    pub fov: f32,
     pub frame_ms: f32,
     /// `FFX_API_CREATE_CONTEXT_DESC_UPSCALE.flags` (0 when not known).
     pub create_flags: u32,
@@ -935,6 +937,9 @@ pub fn upscale(this: *const std::ffi::c_void, up: &Upscale) -> bool {
                 create_flags: up.create_flags,
             };
             done = crate::dlss::record(&host.device, list, &inputs);
+            if done && !crate::fg::any_upscale() {
+                crate::fg::note_titles(up.depth, up.motion);
+            }
         }
         if !done {
             static TOLD: std::sync::Once = std::sync::Once::new();
@@ -943,6 +948,24 @@ pub fn upscale(this: *const std::ffi::c_void, up: &Upscale) -> bool {
         }
         if done {
             crate::texture::host_written(output);
+            // Frame generation's constants, depth and motion vectors, from
+            // every upscale, the stretch too (`crate::fg::any_upscale`).
+            if crate::fg::active() && crate::fg::any_upscale() {
+                // SAFETY: a live resource.
+                let c = unsafe { src.GetDesc() };
+                crate::fg::from_upscale(
+                    up.render,
+                    [c.Width as u32, c.Height],
+                    up.jitter,
+                    up.motion_scale,
+                    up.near,
+                    up.far,
+                    up.fov,
+                    up.reset,
+                    up.depth,
+                    up.motion,
+                );
+            }
         }
         state.replay(list);
     });

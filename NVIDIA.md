@@ -85,13 +85,25 @@ changes, so it is not a merge fault. See *Tried on an RTX 5070* below.
   aleksesipenko/VIctory-RTX): the title's FidelityFX upscale is done by DLSS from its colour,
   depth, motion vectors and jitter, instead of a plain stretch; if DLSS cannot run, the stretch.
   NVIDIA's files are not in this repository: put `nvsdk_ngx_d.lib`
-  (`lib\Windows_x86_64d`) and `nvngx_dlss.dll` (`lib\Windows_x86_64el`) from
-  <https://github.com/NVIDIA/DLSS> (NVIDIA's licence) in `%LOCALAPPDATA%\VIctory-Fork
-vidia-dlss`
+  (`lib\Windows_x86_64\x64`) and `nvngx_dlss.dll` (`lib\Windows_x86_64\rel`) from
+  <https://github.com/NVIDIA/DLSS> (NVIDIA's licence) in `%LOCALAPPDATA%\VIctory-Fork\nvidia-dlss`
   (or name the folder in `VICTORY_DLSS_SDK`); the launcher then builds with DLSS. Check the DLL's
   NVIDIA signature (file properties, Digital Signatures). Switches: `VICTORY_DLSS_PRESET`
   (`J`, `K`, `L`, `M`), `VICTORY_DLSS_QUALITY`, `VICTORY_DLSS_MV_JITTERED`, `VICTORY_DLSS_MV_SIGN`,
   `VICTORY_DLSS_JITTER_SIGN`, `VICTORY_DLSS_SHARPNESS`.
+- **NVIDIA DLSS Frame Generation** (`VICTORY_FRAME_GEN=2`, `3` or `4`: frames shown per frame the
+  title makes; from T0nyyyyy/Nvidia-framegenmaybefixed-): NVIDIA Streamline's proxy swap chain
+  makes the frames in between at each present, from the depth, motion vectors, jitter and depth
+  range of the title's upscale, with Reflex. RTX 40 or newer (2x), RTX 50 for 3x and more. The
+  window's title shows both rates. NVIDIA's files are not in this repository: put the `bin\x64`
+  folder of the Streamline SDK release (<https://github.com/NVIDIA-RTX/Streamline/releases>,
+  NVIDIA's licence) in `%LOCALAPPDATA%\VIctory-Fork\streamline` (or name it in
+  `VICTORY_STREAMLINE_DIR`); the launcher finds it. Check the DLLs' NVIDIA signatures. Turn NVIDIA
+  Smooth Motion off for `victory.exe` with it. Switches: `VICTORY_FG_BUFFERS` (swap-chain buffers,
+  2 by default), `VICTORY_FG_TITLE_FOV=1` (the title's field of view, not 60 degrees),
+  `VICTORY_FG_MV_JITTERED=0`, `VICTORY_FG_REFLEX=0`, `VICTORY_FG_ANY_UPSCALE=0`,
+  `VICTORY_DLSS_BEFORE_SL=1`. It makes the motion look smoother; the controls still answer at the
+  title's own rate, and a frame that flashes is shown for longer.
 - **More logging** for upscales and controller input.
 - **Launcher script** (`scripts/nvidia/start.ps1`): builds this checkout, sets the options, keeps
   each run's log and shows crash reports. **`Collect logs.cmd`** zips the logs for sharing.
@@ -264,6 +276,7 @@ show where a frame's time goes:
 | RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | voxel light, `VICTORY_SKIP_WC_BACK=1`, the stand-in without ghosts | **7.4 fps (135 ms) in lighter views**, 5.9 (170 ms) in busy ones; no blocks in unlit places, no ghosts when turning. The world still jumps back now and then in dense places (near the first house), never in open country |
 | RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | the suggested `MORE` above (no `LEVELS_ON_DEMAND`; async submit; the title's own upscaler), live textures, voxel light | **8.5 fps median in busy views (118 ms), 9-11 on the road**; the card not waited for; roads textured, a sharp picture, no ghosts or jumps, the sky flashing once or twice a session |
 | RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | the same with `VICTORY_UPSCALE=dlss` in place of `VICTORY_UPSCALER=6` | **9.6 fps median (8.7-10.0 most of the time) against 8.6 (7.6-9.6)**; feels smoother; DLSS 310.9.16, 1280x720 to 1920x1080 |
+| RTX 5070 12 GB, i7-14700K, 32 GB DDR4 at 3200 MHz | the same with `VICTORY_FRAME_GEN=2`, then `3` (Streamline 2.14.16) | 2x: 8.1 fps made, about 15 shown; 3x: 7.4 made, about 22 shown, smooth to the eye; at 3x the card was waited for 28 ms a frame (10 ms with `VICTORY_FG_BUFFERS=3`). The sky and water flashes stand out more |
 
 With the shader fixes, the first start after an update rebuilds every pipeline while it plays
 (hundreds at first, 1.5-4 fps for a minute or two); the second start loads them from the cache.

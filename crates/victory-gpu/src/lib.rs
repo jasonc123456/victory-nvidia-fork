@@ -40,6 +40,10 @@ mod host;
 #[cfg(windows)]
 mod over;
 #[cfg(windows)]
+pub mod streamline;
+#[cfg(windows)]
+mod fg;
+#[cfg(windows)]
 mod indirect;
 #[cfg(windows)]
 mod inplace;

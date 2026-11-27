@@ -124,6 +124,7 @@ extern "system" fn dispatch(context: *mut *mut c_void, desc: *const Header) -> u
                     pre_exposure: d.pre_exposure,
                     near: d.camera_near,
                     far: d.camera_far,
+                    fov: d.camera_fov,
                     frame_ms: d.frame_time_delta,
                     // ffxCreateContext is the title's own: its flags are not
                     // known here (DLSS's VICTORY_DLSS_MV_JITTERED and the like

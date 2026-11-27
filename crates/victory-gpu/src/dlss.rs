@@ -163,6 +163,22 @@ unsafe impl Send for Dlss {}
 /// `None` until tried; `Some(None)`: unavailable, never tried again.
 static DLSS: Mutex<Option<Option<Dlss>>> = Mutex::new(None);
 
+/// `VICTORY_DLSS_BEFORE_SL=1` with `VICTORY_UPSCALE=dlss`: NGX started for DLSS
+/// super resolution before Streamline starts it for frame generation
+/// (`crate::fg::start`). NGX is one per process and looks for its features
+/// once, in the folders of whoever starts it first: when Streamline's folder
+/// has no `nvngx_dlss.dll`, DLSS super resolution is not found afterwards.
+pub(crate) fn start_before_streamline(device: &ID3D12Device) {
+    if std::env::var_os("VICTORY_DLSS_BEFORE_SL").is_none_or(|v| v != "1")
+        || std::env::var_os("VICTORY_UPSCALE").is_none_or(|v| v != "dlss")
+    {
+        return;
+    }
+    let mut guard = DLSS.lock().unwrap_or_else(|e| e.into_inner());
+    let ok = guard.get_or_insert_with(|| init(device)).is_some();
+    tracing::info!(ok, "DLSS: NGX started before Streamline (VICTORY_DLSS_BEFORE_SL=1)");
+}
+
 fn env_f(name: &str, default: f32) -> f32 {
     std::env::var(name).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(default)
 }
@@ -386,6 +402,19 @@ pub(crate) fn record(device: &ID3D12Device, list: &crate::host::HostList, inputs
         static TOLD: std::sync::Once = std::sync::Once::new();
         TOLD.call_once(|| tracing::warn!(result = format_args!("{r:#x}"), "DLSS: an evaluation failed; that upscale is a stretch"));
         return false;
+    }
+    // DLSS Frame Generation's numbers, with `VICTORY_FG_ANY_UPSCALE=0` (by
+    // default `crate::list::upscale` hands them over for every upscale).
+    if crate::fg::active() && !crate::fg::any_upscale() {
+        crate::fg::tag(
+            [render[0].min(in_w), render[1].min(in_h)],
+            [jit * inputs.jitter[0], jit * inputs.jitter[1]],
+            [mv * scale(inputs.motion_scale[0]), mv * scale(inputs.motion_scale[1])],
+            inputs.near,
+            inputs.far,
+            0.0,
+            inputs.reset,
+        );
     }
     true
 }

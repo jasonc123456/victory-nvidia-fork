@@ -158,6 +158,13 @@ if ($dlss) {
     $dll = @($dlssDir, (Join-Path $dlssDir 'lib\Windows_x86_64\rel')) | Where-Object { Test-Path (Join-Path $_ 'nvngx_dlss.dll') } | Select-Object -First 1
     if ($dll) { $set.VICTORY_DLSS_DIR = $dll }
 }
+# DLSS Frame Generation (VICTORY_FRAME_GEN=2..4): NVIDIA's signed Streamline DLLs (sl.interposer,
+# sl.common, sl.dlss_g, sl.reflex, sl.pcl, nvngx_dlssg), from the bin\x64 folder of the Streamline
+# SDK release (github.com/NVIDIA-RTX/Streamline; NVIDIA's licence, not in this repository), in
+# VICTORY_STREAMLINE_DIR or %LOCALAPPDATA%\VIctory-Fork\streamline (or its sdk\bin\x64).
+$slRoot = if ($env:VICTORY_STREAMLINE_DIR) { $env:VICTORY_STREAMLINE_DIR } else { Join-Path $home_ 'streamline' }
+$sl = @($slRoot, (Join-Path $slRoot 'sdk\bin\x64'), (Join-Path $slRoot 'bin\x64')) | Where-Object { Test-Path (Join-Path $_ 'sl.interposer.dll') } | Select-Object -First 1
+if ($sl) { $set.VICTORY_STREAMLINE_DIR = $sl; Write-Host "Frame generation: NVIDIA's Streamline in $sl; VICTORY_FRAME_GEN=2 turns it on" }
 if ($InputTrace) { $set.VICTORY_LOG = 'info,victory_hle::modules::gameinput=trace' }
 if ($LowVram) { $set.VICTORY_TEXTURE_ROOM_PERCENT = '70'; $set.VICTORY_CARD_BUFFERS_MB = '256' }
 foreach ($pair in ($Settings -split '\s+' | Where-Object { $_ })) {
