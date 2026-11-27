@@ -497,6 +497,148 @@ pub(crate) fn after(list: &HostList, role: Role, views: &Views) -> bool {
     true
 }
 
+/// Whether the title's diffuse light history is kept as the title made it
+/// (`VICTORY_AMBIENT_CLEAN`, on; 0: not). The raise writes into the image
+/// `CS_ScreenProbes_TemporalResolve` leaves, and the title takes that image
+/// as the history of its next resolve: light raised where the frame before
+/// showed something else (the estimate follows the screen, not the world)
+/// then stayed for seconds when the view turned, a see-through ghost of the
+/// old view, and the world seemed to jump back (runs of 2026-11-26: gone
+/// with the stand-in off). With this, the image is copied before the raise,
+/// and the copy is put back before the next frame's first resolve: the raise
+/// is shown in its own frame and goes no further.
+fn clean() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_AMBIENT_CLEAN").is_none_or(|v| v != "0"))
+}
+
+/// A resolve's image as the title left it, before the raise: the title's
+/// resource, our copy, and the frame it was taken in.
+struct Kept {
+    title: usize,
+    copy: ID3D12Resource,
+    frame: u64,
+    /// Not put back yet.
+    pending: bool,
+}
+// SAFETY: D3D12 objects are free-threaded.
+unsafe impl Send for Kept {}
+
+static HISTORY: Mutex<Vec<Kept>> = Mutex::new(Vec::new());
+
+/// Moves the title texture `resource` to `state` in `list`; the state it was
+/// in (`None`: the list had not used it, it is taken to be in `state`).
+fn moved(list: &HostList, resource: crate::object::This, state: u32) -> Option<(&'static ID3D12Resource, u32)> {
+    let (texture, before) = list.transition(resource, state)?;
+    let after = crate::host::legal_state(texture, state);
+    let before = crate::host::legal_state(texture, before);
+    if before != after {
+        let barrier = crate::host::transition(texture, D3D12_RESOURCE_STATES(before as i32), D3D12_RESOURCE_STATES(after as i32));
+        // SAFETY: an open list; the list's states hold the texture.
+        unsafe { list.list.barriers(&[barrier]) };
+    }
+    Some((texture, before))
+}
+
+/// Before the raise of [`Role::Resolve`] into the title's image `resource`:
+/// a copy of the image as the title left it.
+pub(crate) fn keep_history(list: &HostList, resource: crate::object::This) {
+    const COPY_SOURCE: u32 = 0x800;
+    if !clean() || !matches!(set(), Set::Estimate(_)) {
+        return;
+    }
+    let Some(texture) = crate::resource::host_resource(resource) else { return };
+    let Some(host) = host() else { return };
+    // SAFETY: a live resource.
+    let desc = unsafe { texture.GetDesc() };
+    if desc.Flags.0 & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS.0 != 0 {
+        return;
+    }
+    let mut history = HISTORY.lock().unwrap_or_else(|e| e.into_inner());
+    let at = match history.iter().position(|k| k.title == resource as usize) {
+        Some(i) => {
+            // SAFETY: a live resource.
+            let had = unsafe { history[i].copy.GetDesc() };
+            if (had.Width, had.Height, had.Format) == (desc.Width, desc.Height, desc.Format) {
+                i
+            } else {
+                history.remove(i);
+                usize::MAX
+            }
+        }
+        None => usize::MAX,
+    };
+    let at = if at == usize::MAX {
+        let heap = D3D12_HEAP_PROPERTIES { Type: D3D12_HEAP_TYPE_DEFAULT, ..Default::default() };
+        let mut d = desc;
+        d.Flags = D3D12_RESOURCE_FLAG_NONE;
+        let mut copy: Option<ID3D12Resource> = None;
+        // SAFETY: plain creation; the copy stays in the copy-source state
+        // between our uses of it.
+        let made = unsafe {
+            host.device.CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_COPY_SOURCE, None, &mut copy)
+        };
+        let Some(copy) = made.ok().and(copy) else {
+            static TOLD: std::sync::Once = std::sync::Once::new();
+            TOLD.call_once(|| tracing::warn!("no copy of the diffuse light history: the stand-in's raise goes into it"));
+            return;
+        };
+        tracing::info!(
+            width = desc.Width,
+            height = desc.Height,
+            "the diffuse light's history is kept as the title made it (VICTORY_AMBIENT_CLEAN)"
+        );
+        history.push(Kept { title: resource as usize, copy, frame: 0, pending: false });
+        history.len() - 1
+    } else {
+        at
+    };
+    let kept = &mut history[at];
+    list.keep(&kept.copy);
+    let Some((texture, before)) = moved(list, resource, COPY_SOURCE) else {
+        // The list had not used it: no image of this list's to keep.
+        return;
+    };
+    // SAFETY: an open list; both textures alive and in the states named.
+    unsafe {
+        list.list.barriers(&[crate::host::transition(&kept.copy, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST)]);
+        list.list.CopyResource(&kept.copy, texture);
+        list.list.barriers(&[crate::host::transition(&kept.copy, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE)]);
+    }
+    moved(list, resource, before);
+    kept.frame = crate::frame::current();
+    kept.pending = true;
+}
+
+/// Before a dispatch of [`Role::Resolve`]: the images kept in an earlier
+/// frame go back as the title made them, so its history holds no raise.
+pub(crate) fn put_history_back(list: &HostList) {
+    const COPY_DEST: u32 = 0x400;
+    if !clean() {
+        return;
+    }
+    let now = crate::frame::current();
+    let mut history = HISTORY.lock().unwrap_or_else(|e| e.into_inner());
+    for kept in history.iter_mut().filter(|k| k.pending && k.frame < now) {
+        kept.pending = false;
+        if crate::resource::host_resource(kept.title as crate::object::This).is_none() {
+            continue;
+        }
+        list.keep(&kept.copy);
+        let back = moved(list, kept.title as crate::object::This, COPY_DEST);
+        let Some(texture) = back.map(|b| b.0).or_else(|| crate::resource::host_resource(kept.title as crate::object::This))
+        else {
+            continue;
+        };
+        // SAFETY: an open list; the copy in the copy-source state, the
+        // title's texture in the copy-destination one.
+        unsafe { list.list.CopyResource(texture, &kept.copy) };
+        if let Some((_, before)) = back {
+            moved(list, kept.title as crate::object::This, before);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

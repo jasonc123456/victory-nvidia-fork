@@ -2707,6 +2707,13 @@ impl State {
                 unsafe { list.list.SetComputeRoot32BitConstant(param, threads[0], word) };
             }
         }
+        // The diffuse light's history as the title made it, before its
+        // resolve reads it (`crate::ambient::put_history_back`).
+        if p.stages.first().and_then(|s| s.shader.ambient) == Some(crate::ambient::Role::Resolve)
+            && crate::ambient::on()
+        {
+            crate::ambient::put_history_back(list);
+        }
         // SAFETY: an open list with everything set.
         unsafe { list.list.Dispatch(x, y, z) };
         self.buffers_written();
@@ -2749,7 +2756,7 @@ impl State {
             let host = crate::resource::host_resource(resource as This)?;
             // SAFETY: a live resource.
             let desc = unsafe { host.GetDesc() };
-            Some((desc, heap.gpu_handle((start + offset * 4) / 32)))
+            Some((desc, heap.gpu_handle((start + offset * 4) / 32), resource))
         };
         let at = match role {
             Role::Resolve => LIGHT,
@@ -2761,7 +2768,7 @@ impl State {
             Role::Resolve => entry(ResourceType::Srv, DEPTH),
             Role::Radiance | Role::Air => image,
         };
-        let (Some((of, image)), Some((seen, depth))) = (image, depth) else {
+        let (Some((of, image, light)), Some((seen, depth, _))) = (image, depth) else {
             once!(?role, "no stand-in for the indirect light: other tables");
             return false;
         };
@@ -2771,6 +2778,9 @@ impl State {
         if of.Format.0 != format || (seen.Width, seen.Height) != (of.Width, of.Height) || volume != (role == Role::Air) {
             once!(?role, format = of.Format.0, "no stand-in for the indirect light: another image");
             return false;
+        }
+        if role == Role::Resolve {
+            crate::ambient::keep_history(list, light as This);
         }
         crate::ambient::after(list, role, &Views {
             image,
